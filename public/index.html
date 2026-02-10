@@ -9,6 +9,17 @@
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 </head>
 <body>
+    <!-- Online Players Header -->
+    <header class="online-header">
+        <div class="online-stats">
+            <span class="online-label">🌐 Online:</span>
+            <span id="online-count" class="online-count">0</span>
+            <span class="online-separator">|</span>
+            <span class="online-label">👥 In Room:</span>
+            <span id="room-online-count" class="online-count">0</span>
+        </div>
+    </header>
+    
     <!-- Landing/Join Screen -->
     <div id="landing-screen" class="screen active">
         <div class="container">
@@ -73,7 +84,12 @@
                 </div>
                 
                 <div class="players-list">
-                    <h3>Players (<span id="player-count">0</span>)</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h3 style="margin: 0;">Players (<span id="player-count">0</span>)</h3>
+                        <button id="refresh-players-btn" class="btn-icon-small" title="Refresh Players List">
+                            <span class="material-icons">refresh</span>
+                        </button>
+                    </div>
                     <ul id="players-list"></ul>
                 </div>
                 
@@ -206,7 +222,6 @@
     </footer>
 
     <!-- Scripts -->
-    <script src="/socket.io/socket.io.js"></script>
     <script src="/js/socket.js"></script>
     <script src="/js/game.js"></script>
     <script src="/js/ui.js"></script>

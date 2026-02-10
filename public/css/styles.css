@@ -25,6 +25,49 @@ body {
     color: var(--color-white);
     min-height: 100vh;
     overflow-x: hidden;
+    padding-top: 50px; /* Space for online header */
+}
+
+/* Online Players Header */
+.online-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: var(--color-gray-dark);
+    border-bottom: 2px solid var(--color-red);
+    padding: 10px 20px;
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.online-stats {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    color: var(--color-white);
+}
+
+.online-label {
+    font-weight: 500;
+    opacity: 0.9;
+}
+
+.online-count {
+    font-weight: 700;
+    color: var(--color-red);
+    font-size: 16px;
+    min-width: 20px;
+    text-align: center;
+}
+
+.online-separator {
+    opacity: 0.5;
+    margin: 0 5px;
 }
 
 /* Screen Management */

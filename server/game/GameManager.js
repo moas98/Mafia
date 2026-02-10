@@ -29,22 +29,40 @@ class GameManager {
   }
 
   /**
-   * Join player to room
+   * Join player to room - FIXED: Only joins existing rooms, doesn't create new ones
    * @param {string} playerId - Socket ID
    * @param {string} roomCode - Room code
    * @param {string} playerName - Player name
-   * @returns {GameState|null} Game state or null
+   * @returns {GameState|null} Game state or null (null if room doesn't exist)
    */
   joinRoom(playerId, roomCode, playerName) {
+    // Normalize room code
+    roomCode = roomCode.trim().toUpperCase();
+    
     let gameState = this.getRoom(roomCode);
     
+    // If not found, try case-insensitive search
     if (!gameState) {
-      gameState = this.createRoom(roomCode);
+      const availableRooms = Array.from(this.rooms.keys());
+      const matchingRoom = availableRooms.find(r => r.toUpperCase() === roomCode);
+      
+      if (matchingRoom) {
+        console.log(`🔍 Found existing room with different case: ${matchingRoom} -> using ${matchingRoom}`);
+        gameState = this.getRoom(matchingRoom);
+        roomCode = matchingRoom; // Use the actual room code
+      }
+    }
+    
+    // FIXED: Don't create room if it doesn't exist - only join existing rooms
+    if (!gameState) {
+      console.log(`❌ Room ${roomCode} does not exist - cannot join`);
+      return null; // Room doesn't exist
     }
     
     if (gameState.phase === 'lobby') {
       gameState.addPlayer(playerId, playerName);
       this.playerRooms.set(playerId, roomCode);
+      console.log(`✅ Player ${playerName} (${playerId}) joined room ${roomCode}`);
       return gameState;
     }
     

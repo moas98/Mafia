@@ -1,98 +1,267 @@
 /**
- * Socket.io client connection and event handling
+ * Native WebSocket client connection and event handling
  */
 class SocketClient {
     constructor() {
-        this.socket = null;
+        this.ws = null;
         this.connected = false;
+        this.socketId = null;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 5;
+        this.reconnectDelay = 1000;
+        this.eventListeners = new Map(); // event -> Set of callbacks
+        this.messageQueue = []; // Queue messages while disconnected
     }
 
     /**
      * Connect to server
      */
     connect() {
-        this.socket = io();
-        
-        this.socket.on('connect', () => {
-            this.connected = true;
-            console.log('Connected to server');
-        });
+        try {
+            // Determine WebSocket URL
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.host;
+            const wsUrl = `${protocol}//${host}`;
 
-        this.socket.on('disconnect', () => {
-            this.connected = false;
-            console.log('Disconnected from server');
-        });
+            console.log(`🔌 Connecting to WebSocket: ${wsUrl}`);
+            
+            this.ws = new WebSocket(wsUrl);
+            
+            this.ws.onopen = () => {
+                console.log('✅ WebSocket connected');
+                this.connected = true;
+                this.reconnectAttempts = 0;
+                
+                // Send queued messages
+                while (this.messageQueue.length > 0) {
+                    const message = this.messageQueue.shift();
+                    this.send(message.event, message.data);
+                }
+            };
 
-        this.socket.on('error', (error) => {
-            console.error('Socket error:', error);
-            alert(error.message || 'An error occurred');
-        });
+            this.ws.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    console.log(`📥 Received: ${message.event}`, message.data);
+                    this.handleMessage(message.event, message.data);
+                } catch (error) {
+                    console.error('❌ Error parsing WebSocket message:', error);
+                }
+            };
 
-        return this.socket;
-    }
+            this.ws.onerror = (error) => {
+                console.error('❌ WebSocket error:', error);
+                this.connected = false;
+            };
 
-    /**
-     * Join a room
-     */
-    joinRoom(roomCode, playerName) {
-        if (!this.socket) {
-            this.connect();
+            this.ws.onclose = (event) => {
+                console.log('❌ WebSocket closed:', event.code, event.reason);
+                this.connected = false;
+                this.socketId = null;
+                
+                // Attempt to reconnect
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    console.log(`🔄 Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+                    setTimeout(() => {
+                        this.connect();
+                    }, this.reconnectDelay * this.reconnectAttempts);
+                } else {
+                    console.error('❌ Max reconnection attempts reached');
+                    alert('Connection lost. Please refresh the page.');
+                }
+            };
+
+            return this.ws;
+        } catch (error) {
+            console.error('❌ Failed to initialize WebSocket:', error);
+            alert('Failed to connect to server. Please check if the server is running.');
+            return null;
         }
-        this.socket.emit('join-room', { roomCode, playerName });
     }
 
     /**
-     * Start game
+     * Handle incoming message
      */
-    startGame(roomCode) {
-        this.socket.emit('start-game', { roomCode });
+    handleMessage(event, data) {
+        const listeners = this.eventListeners.get(event);
+        if (listeners) {
+            listeners.forEach(callback => {
+                try {
+                    callback(data);
+                } catch (error) {
+                    console.error(`❌ Error in ${event} handler:`, error);
+                }
+            });
+        }
     }
 
     /**
-     * Send night action
+     * Send message to server
      */
-    sendNightAction(roomCode, action, target) {
-        this.socket.emit('night-action', { roomCode, action, target });
-    }
+    send(event, data) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.warn(`⚠️ WebSocket not connected, queueing message: ${event}`);
+            this.messageQueue.push({ event, data });
+            
+            // Try to reconnect if not already attempting
+            if (!this.connected && this.reconnectAttempts === 0) {
+                this.connect();
+            }
+            return;
+        }
 
-    /**
-     * Send vote
-     */
-    sendVote(roomCode, targetId) {
-        this.socket.emit('vote', { roomCode, targetId });
-    }
-
-    /**
-     * Send chat message
-     */
-    sendChatMessage(roomCode, message, chatType = 'public') {
-        this.socket.emit('chat-message', { roomCode, message, chatType });
+        try {
+            const message = JSON.stringify({ event, data });
+            this.ws.send(message);
+            console.log(`📤 Sent: ${event}`, data);
+        } catch (error) {
+            console.error(`❌ Error sending message:`, error);
+        }
     }
 
     /**
      * Register event listener
      */
     on(event, callback) {
-        if (!this.socket) {
-            this.connect();
+        if (!this.eventListeners.has(event)) {
+            this.eventListeners.set(event, new Set());
         }
-        this.socket.on(event, callback);
+        this.eventListeners.get(event).add(callback);
+        console.log(`👂 Registered listener for: ${event}`);
     }
 
     /**
      * Remove event listener
      */
     off(event, callback) {
-        if (this.socket) {
-            this.socket.off(event, callback);
+        const listeners = this.eventListeners.get(event);
+        if (listeners) {
+            listeners.delete(callback);
+            if (listeners.size === 0) {
+                this.eventListeners.delete(event);
+            }
         }
+    }
+
+    /**
+     * Register one-time event listener
+     */
+    once(event, callback) {
+        const onceCallback = (data) => {
+            callback(data);
+            this.off(event, onceCallback);
+        };
+        this.on(event, onceCallback);
     }
 
     /**
      * Get socket ID
      */
     getId() {
-        return this.socket?.id || null;
+        return this.socketId;
+    }
+
+    /**
+     * Create a room
+     */
+    createRoom(roomCode, playerName) {
+        if (!this.connected) {
+            console.warn('⚠️ WebSocket not connected, connecting...');
+            this.connect();
+            // Wait for connection
+            this.ws.onopen = () => {
+                this.send('create-room', { roomCode, playerName });
+            };
+        } else {
+            this.send('create-room', { roomCode, playerName });
+        }
+    }
+
+    /**
+     * Join a room
+     */
+    joinRoom(roomCode, playerName) {
+        if (!this.connected) {
+            console.warn('⚠️ WebSocket not connected, connecting...');
+            this.connect();
+            // Wait for connection
+            this.ws.onopen = () => {
+                this.send('join-room', { roomCode, playerName });
+            };
+        } else {
+            this.send('join-room', { roomCode, playerName });
+        }
+    }
+
+    /**
+     * Start game
+     */
+    startGame(roomCode) {
+        this.send('start-game', { roomCode });
+    }
+
+    /**
+     * Send night action
+     */
+    sendNightAction(roomCode, action, target) {
+        this.send('night-action', { roomCode, action, target });
+    }
+
+    /**
+     * Send vote
+     */
+    sendVote(roomCode, targetId) {
+        this.send('vote', { roomCode, targetId });
+    }
+
+    /**
+     * Send chat message
+     */
+    sendChatMessage(roomCode, message, chatType = 'public') {
+        this.send('chat-message', { roomCode, message, chatType });
+    }
+
+    /**
+     * Get available rooms
+     */
+    getRooms() {
+        if (!this.connected) {
+            if (this.ws) {
+                this.ws.onopen = () => {
+                    this.send('get-rooms', {});
+                };
+            }
+            return;
+        }
+        this.send('get-rooms', {});
+    }
+
+    /**
+     * Check room status
+     */
+    checkRoom(roomCode) {
+        if (!this.connected) {
+            if (this.ws) {
+                this.ws.onopen = () => {
+                    this.send('check-room', { roomCode });
+                };
+            }
+            return;
+        }
+        this.send('check-room', { roomCode });
+    }
+
+    /**
+     * Request current room state
+     */
+    requestRoomState(roomCode) {
+        if (!this.connected) {
+            console.warn('⚠️ WebSocket not connected, cannot request room state');
+            return;
+        }
+        console.log('📤 Requesting room state for:', roomCode);
+        this.send('request-room-state', { roomCode });
     }
 }
 

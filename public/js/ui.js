@@ -10,6 +10,7 @@ class UIManager {
      * Show a specific screen
      */
     showScreen(screenName) {
+        console.log('🖥️ Switching to screen:', screenName);
         document.querySelectorAll('.screen').forEach(screen => {
             screen.classList.remove('active');
         });
@@ -18,6 +19,9 @@ class UIManager {
         if (targetScreen) {
             targetScreen.classList.add('active');
             this.currentScreen = screenName;
+            console.log('✅ Screen switched to:', screenName);
+        } else {
+            console.error('❌ Screen not found:', `${screenName}-screen`);
         }
     }
 
@@ -35,26 +39,68 @@ class UIManager {
      * Update players list in lobby
      */
     updatePlayersList(players, isCreator = false) {
+        console.log('🔄 updatePlayersList called with:', {
+            playersCount: players?.length,
+            players: players,
+            isCreator: isCreator
+        });
+        
         const list = document.getElementById('players-list');
         const count = document.getElementById('player-count');
         const startSection = document.getElementById('start-game-section');
         
-        if (!list) return;
+        if (!list) {
+            console.error('❌ Players list element (#players-list) not found in DOM!');
+            console.error('❌ Current screen:', this.currentScreen);
+            return;
+        }
 
+        if (!players || !Array.isArray(players)) {
+            console.error('❌ Invalid players data:', players);
+            console.error('❌ Type:', typeof players);
+            return;
+        }
+
+        console.log('🔄 Updating players list with', players.length, 'players');
+        
         list.innerHTML = '';
-        players.forEach(player => {
-            const li = document.createElement('li');
-            li.textContent = player.name;
-            list.appendChild(li);
-        });
+        
+        if (players.length === 0) {
+            const emptyMsg = document.createElement('li');
+            emptyMsg.textContent = 'No players yet...';
+            emptyMsg.style.color = 'rgba(255, 255, 255, 0.5)';
+            emptyMsg.style.fontStyle = 'italic';
+            list.appendChild(emptyMsg);
+        } else {
+            players.forEach((player, index) => {
+                const li = document.createElement('li');
+                li.textContent = player.name || `Player ${index + 1}`;
+                if (player.isAlive === false) {
+                    li.style.opacity = '0.5';
+                    li.textContent += ' (Dead)';
+                }
+                list.appendChild(li);
+            });
+        }
 
         if (count) {
+            const oldCount = count.textContent;
             count.textContent = players.length;
+            console.log(`✅ Player count updated: ${oldCount} → ${players.length}`);
+            
+            // Force a re-render check
+            if (count.textContent !== String(players.length)) {
+                console.error('❌ Player count element not updating!');
+                count.textContent = players.length;
+            }
+        } else {
+            console.error('❌ Player count element not found!');
         }
 
         if (startSection) {
             if (isCreator && players.length >= 3) {
                 startSection.classList.remove('hidden');
+                console.log('✅ Start game button shown');
             } else {
                 startSection.classList.add('hidden');
             }
@@ -371,6 +417,91 @@ class UIManager {
         if (roundEl) {
             roundEl.textContent = `Round ${round}`;
         }
+    }
+
+    /**
+     * Display available rooms list
+     */
+    displayRoomsList(rooms) {
+        const listContainer = document.getElementById('rooms-list');
+        if (!listContainer) return;
+
+        if (rooms.length === 0) {
+            listContainer.innerHTML = '<p style="text-align: center; color: rgba(255,255,255,0.5); padding: 20px;">No available rooms. Create one to get started!</p>';
+            return;
+        }
+
+        listContainer.innerHTML = '';
+
+        rooms.forEach(room => {
+            const roomItem = document.createElement('div');
+            roomItem.className = `room-item ${!room.canJoin ? 'disabled' : ''}`;
+            
+            const info = document.createElement('div');
+            info.className = 'room-item-info';
+            
+            const code = document.createElement('div');
+            code.className = 'room-item-code';
+            code.textContent = room.roomCode;
+            
+            const details = document.createElement('div');
+            details.className = 'room-item-details';
+            details.innerHTML = `
+                <span>👥 ${room.playerCount}/${room.maxPlayers}</span>
+                <span class="room-item-status ${room.phase}">${room.phase === 'lobby' ? 'Lobby' : 'Playing'}</span>
+            `;
+            
+            info.appendChild(code);
+            info.appendChild(details);
+            
+            const action = document.createElement('div');
+            action.className = 'room-item-action';
+            if (room.canJoin) {
+                const joinBtn = document.createElement('button');
+                joinBtn.className = 'btn btn-primary';
+                joinBtn.textContent = 'Join';
+                joinBtn.style.padding = '6px 12px';
+                joinBtn.style.fontSize = '12px';
+                joinBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.joinRoomFromList(room.roomCode);
+                });
+                action.appendChild(joinBtn);
+            } else {
+                action.innerHTML = '<span style="color: rgba(255,255,255,0.5); font-size: 12px;">In Game</span>';
+            }
+            
+            roomItem.appendChild(info);
+            roomItem.appendChild(action);
+            
+            if (room.canJoin) {
+                roomItem.addEventListener('click', () => {
+                    this.joinRoomFromList(room.roomCode);
+                });
+            }
+            
+            listContainer.appendChild(roomItem);
+        });
+    }
+
+    /**
+     * Join room from rooms list
+     */
+    joinRoomFromList(roomCode) {
+        // Switch to join tab
+        const joinTab = document.getElementById('join-tab');
+        if (joinTab) {
+            joinTab.click();
+        }
+
+        // Fill in room code
+        const roomCodeInput = document.getElementById('room-code-input');
+        if (roomCodeInput) {
+            roomCodeInput.value = roomCode;
+        }
+
+        // Check room status
+        socketClient.checkRoom(roomCode);
     }
 }
 
