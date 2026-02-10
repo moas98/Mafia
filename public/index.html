@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mafia - The Game</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+</head>
+<body>
+    <!-- Landing/Join Screen -->
+    <div id="landing-screen" class="screen active">
+        <div class="container">
+            <div class="card">
+                <h1 class="title">MAFIA</h1>
+                <p class="subtitle">The Game of Deception</p>
+                
+                <!-- Tabs for Create/Join -->
+                <div class="room-tabs">
+                    <button id="create-tab" class="room-tab active">Create Room</button>
+                    <button id="join-tab" class="room-tab">Join Room</button>
+                </div>
+
+                <!-- Create Room Section -->
+                <div id="create-room-section" class="room-section active">
+                    <div class="form-group">
+                        <input type="text" id="player-name-create" placeholder="Enter Your Name" maxlength="20" class="input-field">
+                    </div>
+                    <button id="create-room-btn" class="btn btn-primary">Create New Room</button>
+                    <div id="create-room-status" class="room-status"></div>
+                </div>
+
+                <!-- Join Room Section -->
+                <div id="join-room-section" class="room-section">
+                    <div class="form-group">
+                        <input type="text" id="room-code-input" placeholder="Enter Room Code (6 characters)" maxlength="6" class="input-field" style="text-transform: uppercase;">
+                        <button id="check-room-btn" class="btn-icon-small" title="Check Room Status">
+                            <span class="material-icons">search</span>
+                        </button>
+                    </div>
+                    <div id="room-status-display" class="room-status"></div>
+                    <div class="form-group">
+                        <input type="text" id="player-name-input" placeholder="Enter Your Name" maxlength="20" class="input-field">
+                    </div>
+                    <button id="join-btn" class="btn btn-primary">Join Game</button>
+                </div>
+
+                <!-- Available Rooms List -->
+                <div id="available-rooms-section" class="available-rooms">
+                    <h3>Available Rooms</h3>
+                    <button id="refresh-rooms-btn" class="btn-icon-small" title="Refresh Rooms">
+                        <span class="material-icons">refresh</span>
+                    </button>
+                    <div id="rooms-list" class="rooms-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lobby/Waiting Room -->
+    <div id="lobby-screen" class="screen">
+        <div class="container">
+            <div class="card">
+                <h2 class="card-title">Waiting Room</h2>
+                
+                <div class="room-code-display">
+                    <span class="label">Room Code:</span>
+                    <span id="room-code-display" class="code">----</span>
+                    <button id="copy-room-code" class="btn-icon" title="Copy Room Code">
+                        <span class="material-icons">content_copy</span>
+                    </button>
+                </div>
+                
+                <div class="players-list">
+                    <h3>Players (<span id="player-count">0</span>)</h3>
+                    <ul id="players-list"></ul>
+                </div>
+                
+                <div id="start-game-section" class="hidden">
+                    <button id="start-game-btn" class="btn btn-primary">Start Game</button>
+                </div>
+                
+                <p class="waiting-message">Waiting for players to join...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Game Screen -->
+    <div id="game-screen" class="screen">
+        <!-- Header -->
+        <header class="game-header">
+            <div class="header-left">
+                <span id="room-code-header" class="room-code-small">----</span>
+            </div>
+            <div class="header-center">
+                <div id="phase-indicator" class="phase-indicator">
+                    <span id="phase-text">LOBBY</span>
+                </div>
+                <div id="timer" class="timer">--:--</div>
+            </div>
+            <div class="header-right">
+                <span id="round-number" class="round">Round 0</span>
+            </div>
+        </header>
+
+        <!-- Moderator Messages -->
+        <div id="moderator-messages" class="moderator-container"></div>
+
+        <!-- Main Content -->
+        <main class="game-main">
+            <!-- Player Cards Grid -->
+            <div id="players-grid" class="players-grid"></div>
+
+            <!-- Action Panel -->
+            <div id="action-panel" class="action-panel">
+                <div id="night-actions" class="hidden">
+                    <h3>Night Actions</h3>
+                    <div id="detective-action" class="action-section hidden">
+                        <p>Choose a player to investigate:</p>
+                        <div id="detective-targets" class="target-list"></div>
+                    </div>
+                    <div id="doctor-action" class="action-section hidden">
+                        <p>Choose a player to protect:</p>
+                        <div id="doctor-targets" class="target-list"></div>
+                    </div>
+                    <div id="mafia-action" class="action-section hidden">
+                        <p>Choose a player to eliminate:</p>
+                        <div id="mafia-targets" class="target-list"></div>
+                    </div>
+                </div>
+
+                <div id="day-actions" class="hidden">
+                    <h3>Vote to Eliminate</h3>
+                    <div id="vote-targets" class="target-list"></div>
+                </div>
+            </div>
+
+            <!-- Chat Section -->
+            <div class="chat-section">
+                <div class="chat-tabs">
+                    <button id="public-chat-tab" class="chat-tab active">Public Chat</button>
+                    <button id="mafia-chat-tab" class="chat-tab hidden">Mafia Chat</button>
+                </div>
+                
+                <div id="public-chat" class="chat-window active">
+                    <div id="public-messages" class="messages"></div>
+                    <div class="chat-input-container">
+                        <input type="text" id="public-chat-input" placeholder="Type your message..." class="chat-input">
+                        <button id="public-send-btn" class="btn-send">
+                            <span class="material-icons">send</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="mafia-chat" class="chat-window hidden">
+                    <div id="mafia-messages" class="messages"></div>
+                    <div class="chat-input-container">
+                        <input type="text" id="mafia-chat-input" placeholder="Type your message..." class="chat-input">
+                        <button id="mafia-send-btn" class="btn-send">
+                            <span class="material-icons">send</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Role Card Modal -->
+        <div id="role-modal" class="modal hidden">
+            <div class="modal-content">
+                <button id="close-role-modal" class="btn-close">
+                    <span class="material-icons">close</span>
+                </button>
+                <div id="role-card-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Win/Loss Screen -->
+    <div id="end-screen" class="screen">
+        <div class="container">
+            <div class="card">
+                <h2 id="end-title" class="card-title">Game Over</h2>
+                <p id="end-message" class="end-message"></p>
+                <div id="end-role-display"></div>
+                <button id="play-again-btn" class="btn btn-primary">Play Again</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <p>Created by <strong>Mohammed Al-Saigh</strong></p>
+            <div class="footer-links">
+                <a href="mailto:www.mmmmm1998@gmail.com" class="footer-link">
+                    <span class="material-icons">email</span>
+                    www.mmmmm1998@gmail.com
+                </a>
+                <a href="https://instagram.com/moar98" target="_blank" rel="noopener noreferrer" class="footer-link">
+                    <span class="material-icons">photo_camera</span>
+                    @moar98
+                </a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/socket.js"></script>
+    <script src="/js/game.js"></script>
+    <script src="/js/ui.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>

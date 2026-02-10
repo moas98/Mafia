@@ -1,0 +1,20 @@
+{
+  "name": "mafia-web-app",
+  "version": "1.0.0",
+  "description": "Full-stack Mafia Web Application with WebSockets",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "nodemon server/index.js"
+  },
+  "keywords": ["mafia", "game", "websocket", "socket.io"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.6.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
