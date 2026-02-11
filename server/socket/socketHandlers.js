@@ -891,15 +891,15 @@ class SocketHandlers {
       this.broadcastModeratorMessage(roomCode, 'The sun rises. No one was killed last night.');
     }
 
-    // Check win condition
-    const winResult = WinCondition.checkWinCondition(gameState);
-    if (winResult.gameEnded) {
-      this.broadcastToRoom(roomCode, 'game-ended', winResult);
+    // Check win condition (expects players array)
+    const winResult = WinCondition.checkWinCondition(gameState.players);
+    if (winResult) {
+      this.broadcastToRoom(roomCode, 'game-ended', { ...winResult, gameEnded: true });
       return;
     }
 
     // Start day phase
-    gameState.startDayPhase();
+    gameState.transitionToDay(results);
     this.broadcastToRoom(roomCode, 'day-phase', {
       players: gameState.players.filter(p => p.isAlive).map(p => ({
         id: p.id,
@@ -927,15 +927,15 @@ class SocketHandlers {
       this.broadcastModeratorMessage(roomCode, 'The town could not reach a majority decision.');
     }
 
-    // Check win condition
-    const winResult = WinCondition.checkWinCondition(gameState);
-    if (winResult.gameEnded) {
-      this.broadcastToRoom(roomCode, 'game-ended', winResult);
+    // Check win condition (expects players array)
+    const winResult = WinCondition.checkWinCondition(gameState.players);
+    if (winResult) {
+      this.broadcastToRoom(roomCode, 'game-ended', { ...winResult, gameEnded: true });
       return;
     }
 
     // Start next night phase
-    gameState.startNightPhase();
+    gameState.transitionToNight();
     this.broadcastModeratorMessage(roomCode, 'Night falls. The Mafia awakens...');
     this.startPhaseTimer(roomCode);
   }
