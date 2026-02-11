@@ -580,6 +580,11 @@ body {
     border-color: var(--color-red-dark);
 }
 
+.player-card.disconnected {
+    opacity: 0.7;
+    border-style: dashed;
+}
+
 .player-card.selected {
     border-color: var(--color-red);
     box-shadow: 0 0 0 3px rgba(211, 47, 47, 0.3);

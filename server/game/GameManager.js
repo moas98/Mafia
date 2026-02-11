@@ -59,18 +59,26 @@ class GameManager {
       return null; // Room doesn't exist
     }
     
+    // Rejoin: if a disconnected player with this name exists, reclaim that slot
+    const reconnected = gameState.reconnectPlayerByName(playerName, playerId);
+    if (reconnected) {
+      this.playerRooms.set(playerId, roomCode);
+      console.log(`✅ Player ${playerName} (${playerId}) reconnected to room ${roomCode}`);
+      return gameState;
+    }
+
     if (gameState.phase === 'lobby') {
       gameState.addPlayer(playerId, playerName);
       this.playerRooms.set(playerId, roomCode);
       console.log(`✅ Player ${playerName} (${playerId}) joined room ${roomCode}`);
       return gameState;
     }
-    
-    return null; // Can't join after game started
+
+    return null; // Can't join after game started (and not reconnecting)
   }
 
   /**
-   * Remove player from room
+   * Mark player as disconnected (room stays alive for rejoin on refresh)
    * @param {string} playerId - Socket ID
    */
   leaveRoom(playerId) {
@@ -78,12 +86,8 @@ class GameManager {
     if (roomCode) {
       const gameState = this.getRoom(roomCode);
       if (gameState) {
-        gameState.removePlayer(playerId);
-        
-        // Clean up empty rooms
-        if (gameState.players.length === 0) {
-          this.rooms.delete(roomCode);
-        }
+        gameState.disconnectPlayer(playerId);
+        // Keep room alive even when all players disconnect (allow rejoin)
       }
       this.playerRooms.delete(playerId);
     }
@@ -153,7 +157,8 @@ class GameManager {
       players: gameState.players.map(p => ({
         id: p.id,
         name: p.name,
-        isAlive: p.isAlive
+        isAlive: p.isAlive,
+        disconnected: p.disconnected === true
       })),
       canJoin: gameState.phase === 'lobby'
     };

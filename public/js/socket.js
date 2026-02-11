@@ -41,6 +41,7 @@ class SocketClient {
 
             this.ws.onmessage = (event) => {
                 try {
+                    console.log('event.data', event.data); // keep it so can know ehat is event 
                     const message = JSON.parse(event.data);
                     console.log(`📥 Received: ${message.event}`, message.data);
                     this.handleMessage(message.event, message.data);
@@ -111,10 +112,19 @@ class SocketClient {
             return;
         }
 
+        // Format: "event@@@{\"key\":\"value\"}" — @@@ won't be stripped by proxies
+        const dataObj = data !== undefined && data !== null ? data : {};
+        let dataStr;
         try {
-            const message = JSON.stringify({ event, data });
-            this.ws.send(message);
-            console.log(`📤 Sent: ${event}`, data);
+            dataStr = JSON.stringify(dataObj);
+        } catch (e) {
+            console.error(`❌ JSON.stringify failed for ${event}:`, e);
+            return;
+        }
+        const text = event + '@@@' + dataStr;
+        try {
+            this.ws.send(text);
+            console.log(`📤 Sent: ${event}`, dataObj);
         } catch (error) {
             console.error(`❌ Error sending message:`, error);
         }

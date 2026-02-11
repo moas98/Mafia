@@ -78,6 +78,9 @@ class UIManager {
                 if (player.isAlive === false) {
                     li.style.opacity = '0.5';
                     li.textContent += ' (Dead)';
+                } else if (player.disconnected) {
+                    li.style.opacity = '0.7';
+                    li.textContent += ' (Disconnected)';
                 }
                 list.appendChild(li);
             });
@@ -118,8 +121,8 @@ class UIManager {
         
         players.forEach(player => {
             const card = document.createElement('div');
-            card.className = `player-card ${!player.isAlive ? 'dead' : ''}`;
-            card.dataset.playerId = player.id;
+            card.className = `player-card ${!player.isAlive ? 'dead' : ''} ${player.disconnected ? 'disconnected' : ''}`;
+            card.dataset.playerId = player.id || '';
 
             const name = document.createElement('div');
             name.className = 'player-name';
@@ -127,7 +130,7 @@ class UIManager {
 
             const status = document.createElement('div');
             status.className = 'player-status';
-            status.textContent = player.isAlive ? 'Alive' : 'Dead';
+            status.textContent = player.disconnected ? 'Disconnected' : (player.isAlive ? 'Alive' : 'Dead');
 
             card.appendChild(name);
             card.appendChild(status);

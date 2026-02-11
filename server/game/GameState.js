@@ -27,13 +27,42 @@ class GameState {
         name: playerName,
         role: null,
         isAlive: true,
-        votes: 0
+        votes: 0,
+        disconnected: false
       });
     }
   }
 
   /**
-   * Remove player from game
+   * Mark player as disconnected (keeps slot for rejoin on refresh)
+   * @param {string} playerId - Socket ID
+   */
+  disconnectPlayer(playerId) {
+    const player = this.players.find(p => p.id === playerId);
+    if (player) {
+      player.disconnected = true;
+      player.id = null; // Free socket id so we can assign new one on rejoin
+    }
+  }
+
+  /**
+   * Reconnect a disconnected player by name (e.g. after refresh)
+   * @param {string} name - Player display name
+   * @param {string} newSocketId - New socket ID
+   * @returns {boolean} True if reconnected
+   */
+  reconnectPlayerByName(name, newSocketId) {
+    const player = this.players.find(p => p.name === name && p.disconnected);
+    if (player) {
+      player.id = newSocketId;
+      player.disconnected = false;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Remove player from game (full removal; used only if needed)
    * @param {string} playerId - Socket ID
    */
   removePlayer(playerId) {
@@ -192,7 +221,8 @@ class GameState {
         name: p.name,
         isAlive: p.isAlive,
         votes: p.votes,
-        role: p.role // Only visible to player themselves
+        role: p.role,
+        disconnected: p.disconnected === true
       })),
       timeRemaining: this.timeRemaining,
       round: this.round,
@@ -207,10 +237,18 @@ class GameState {
    */
   getPlayerState(playerId) {
     const player = this.players.find(p => p.id === playerId);
+    if (!player) return { role: null, roleImage: null };
     return {
-      role: player?.role || null,
-      roleImage: player?.role ? require('./RoleManager').getRoleImage(player.role) : null
+      role: player.role || null,
+      roleImage: player.role ? require('./RoleManager').getRoleImage(player.role) : null
     };
+  }
+
+  /**
+   * Check if room has a disconnected player with this name
+   */
+  getDisconnectedPlayerByName(name) {
+    return this.players.find(p => p.name === name && p.disconnected) || null;
   }
 }
 

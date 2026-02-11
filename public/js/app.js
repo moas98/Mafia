@@ -183,14 +183,26 @@ class App {
             const currentScreen = uiManager.currentScreen;
             console.log('🔍 Current screen before join:', currentScreen);
             
+            // Persist room for rejoin on refresh
+            try {
+                const rc = data.roomCode || gameState.roomCode || '';
+                const pn = gameState.playerName || '';
+                if (rc) sessionStorage.setItem('mafia_roomCode', rc);
+                if (pn) sessionStorage.setItem('mafia_playerName', pn);
+            } catch (e) { /* ignore */ }
+
             if (currentScreen === 'landing' || !currentScreen) {
                 console.log('✅ Navigating to lobby - room join successful');
                 uiManager.updateRoomCode(data.roomCode || gameState.roomCode);
                 uiManager.showScreen('lobby');
+                // Request room state so rejoin after game start gets phase and can show game screen
+                setTimeout(() => {
+                    if (gameState.roomCode) socketClient.requestRoomState(gameState.roomCode);
+                }, 300);
             } else {
                 console.log('⚠️ Not navigating - already on screen:', currentScreen);
             }
-            
+
             if (data.players && Array.isArray(data.players)) {
                 console.log('👥 Valid players array received:', data.players.length, 'players');
                 console.log('👥 Players:', data.players);
@@ -414,7 +426,14 @@ class App {
                 console.log('✅ Valid players array received:', data.players.length, 'players');
                 console.log('👥 Players array:', data.players);
                 uiManager.updatePlayersList(data.players, data.isCreator);
-                
+                // If we're in game phase (e.g. rejoin after refresh), show game screen
+                if (data.phase === 'night' || data.phase === 'day') {
+                    gameState.updatePhase(data.phase, data.timeRemaining != null ? data.timeRemaining : 0);
+                    gameState.updatePlayers(data.players);
+                    uiManager.showScreen('game');
+                    uiManager.renderPlayerCards(data.players, gameState.playerId);
+                    uiManager.updatePhaseIndicator(data.phase, data.timeRemaining != null ? data.timeRemaining : 0);
+                }
                 // Double-check after update
                 setTimeout(() => {
                     const countEl = document.getElementById('player-count');
@@ -736,6 +755,22 @@ class App {
     }
 
     /**
+     * Try to rejoin room from sessionStorage (after refresh)
+     */
+    tryRejoinFromStorage(roomCode, playerName) {
+        if (!roomCode || !playerName) return;
+        const statusEl = document.getElementById('room-status-display');
+        if (statusEl) {
+            statusEl.textContent = 'Rejoining room...';
+            statusEl.className = 'room-status info';
+        }
+        gameState.init(roomCode, playerName, socketClient.getId());
+        uiManager.updateRoomCode(roomCode);
+        socketClient.joinRoom(roomCode, playerName);
+        // If rejoin fails, error handler will clear status
+    }
+
+    /**
      * Switch between create and join tabs
      */
     switchRoomTab(tab) {
@@ -902,6 +937,12 @@ class App {
         gameState.phase = 'lobby';
         gameState.players = [];
 
+        // Clear persisted room so we don't auto-rejoin
+        try {
+            sessionStorage.removeItem('mafia_roomCode');
+            sessionStorage.removeItem('mafia_playerName');
+        } catch (e) { /* ignore */ }
+
         // Clear inputs
         document.getElementById('room-code-input').value = '';
         document.getElementById('player-name-input').value = '';
@@ -932,18 +973,24 @@ window.addEventListener('unhandledrejection', (event) => {
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     const app = new App();
-    
+
     // Connect to server FIRST
     const ws = socketClient.connect();
-    
+
     if (ws) {
-        // Wait for connection, THEN set up listeners
+        // Wait for connection, then set up listeners and try auto-rejoin
         socketClient.once('connected', () => {
             console.log('✅ WebSocket connected, setting up listeners...');
-            
-            // Small delay to ensure connection is fully established
             setTimeout(() => {
                 socketClient.getRooms();
+                // If we have a saved room (e.g. after refresh), rejoin automatically
+                try {
+                    const savedRoom = sessionStorage.getItem('mafia_roomCode');
+                    const savedName = sessionStorage.getItem('mafia_playerName');
+                    if (savedRoom && savedName) {
+                        app.tryRejoinFromStorage(savedRoom, savedName);
+                    }
+                } catch (e) { /* ignore */ }
             }, 100);
         });
     } else {

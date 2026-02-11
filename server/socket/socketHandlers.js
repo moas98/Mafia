@@ -6,6 +6,81 @@ const RoleManager = require('../game/RoleManager');
 const WinCondition = require('../game/WinCondition');
 const { v4: uuidv4 } = require('uuid');
 
+/**
+ * Normalize any ws message payload to a UTF-8 string.
+ * Handles: string, Buffer, ArrayBuffer, Buffer[], TypedArray.
+ */
+function messageToRawString(message) {
+  if (typeof message === 'string') return message;
+  if (Buffer.isBuffer(message)) return message.toString('utf8');
+  if (Array.isArray(message)) {
+    const buf = Buffer.concat(message.map(chunk => (Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))));
+    return buf.toString('utf8');
+  }
+  if (message instanceof ArrayBuffer || ArrayBuffer.isView(message)) {
+    return Buffer.from(message).toString('utf8');
+  }
+  if (message && typeof message.toString === 'function') return message.toString('utf8');
+  return String(message);
+}
+
+/**
+ * Parse incoming message. Try in order:
+ * 1. "event@@@json" (delimiter @@@)
+ * 2. "event\tjson" (tab)
+ * 3. "event\njson" (newline)
+ * 4. Legacy: single JSON { event, data }
+ */
+function parseClientMessage(raw) {
+  let s = raw.trim();
+  if (s.length > 0 && s.charCodeAt(0) === 0xFEFF) s = s.slice(1);
+  if (!s) return { event: null, data: null };
+
+  const delimiters = ['@@@', '\t', '\n'];
+  for (const sep of delimiters) {
+    const idx = s.indexOf(sep);
+    if (idx >= 0) {
+      const event = s.slice(0, idx).trim();
+      const dataStr = s.slice(idx + sep.length).trim();
+      if (!event) continue;
+      let data = {};
+      try {
+        data = dataStr ? JSON.parse(dataStr) : {};
+      } catch (e) {
+        try {
+          data = dataStr ? JSON.parse(dataStr.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')) : {};
+        } catch (e2) {
+          continue;
+        }
+      }
+      return { event, data };
+    }
+  }
+
+  // Legacy: single JSON { event, data }
+  let parsed = null;
+  try {
+    parsed = JSON.parse(s);
+  } catch (e1) {
+    const cleaned = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (e2) {
+      const firstBrace = s.indexOf('{');
+      if (firstBrace !== -1) {
+        let depth = 0;
+        for (let i = firstBrace; i < s.length; i++) {
+          const ch = s[i];
+          if (ch === '{') depth++;
+          else if (ch === '}') { depth--; if (depth === 0) { try { parsed = JSON.parse(s.slice(firstBrace, i + 1)); } catch (e3) {} break; } }
+        }
+      }
+    }
+  }
+  if (!parsed || typeof parsed.event !== 'string') return { event: null, data: null };
+  return { event: parsed.event, data: parsed.data !== undefined ? parsed.data : {} };
+}
+
 class SocketHandlers {
   constructor(wss) {
     this.wss = wss;
@@ -49,21 +124,38 @@ class SocketHandlers {
         ws.isAlive = true;
       });
 
-      // Handle incoming messages
+      // Handle incoming messages: tab-separated "event\t{...}" or legacy JSON
       ws.on('message', (message) => {
         try {
-          const data = JSON.parse(message.toString());
-          console.log(`📥 [${socketId}] Received:`, data.event, data.data);
-          this.handleMessage(ws, socketId, data);
-        } catch (error) {
-          console.error(`❌ [${socketId}] Error parsing message:`, error);
-          this.send(ws, 'error', { message: 'Invalid message format' });
+          const raw = messageToRawString(message);
+          const { event, data: eventData } = parseClientMessage(raw);
+          if (!event) {
+            if (!raw || !raw.trim()) {
+              this.send(ws, 'error', { message: 'Invalid message format (empty)' });
+            } else {
+              const codes = Array.from(raw.slice(0, 40)).map((c, i) => raw.charCodeAt(i)).join(',');
+              console.error(`❌ [${socketId}] Bad payload. len=${raw.length} first40codes=[${codes}] raw="${raw.slice(0, 80)}"`);
+              this.send(ws, 'error', { message: 'Invalid message format' });
+            }
+            return;
+          }
+          console.log(`📥 [${socketId}] Received:`, event, eventData);
+          this.handleMessage(ws, socketId, { event, data: eventData || {} });
+        } catch (err) {
+          console.error(`❌ [${socketId}] Message handler error:`, err.message);
+          try {
+            this.send(ws, 'error', { message: 'Invalid message format' });
+          } catch (e) { /* ignore */ }
         }
       });
 
-      // Handle disconnect
+      // Handle disconnect (wrap so handler errors don't crash process)
       ws.on('close', () => {
-        this.handleDisconnect(ws, socketId);
+        try {
+          this.handleDisconnect(ws, socketId);
+        } catch (err) {
+          console.error(`❌ [${socketId}] Disconnect handler error:`, err.message);
+        }
       });
 
       ws.on('error', (error) => {
@@ -248,7 +340,8 @@ class SocketHandlers {
       const playersList = joinedGameState.players.map(p => ({
         id: p.id,
         name: p.name,
-        isAlive: p.isAlive !== undefined ? p.isAlive : true
+        isAlive: p.isAlive !== undefined ? p.isAlive : true,
+        disconnected: p.disconnected === true
       }));
       
       console.log(`📤 [${socketId}] Sending room-joined with ${playersList.length} players:`, playersList);
@@ -316,17 +409,18 @@ class SocketHandlers {
     const actualRoomCode = matchingRoom;
     console.log(`✅ [${socketId}] Room found: ${actualRoomCode} (searched for: ${normalizedCode})`);
     
-    // Check if room is in lobby phase (can be joined)
     const existingRoom = this.gameManager.getRoom(actualRoomCode);
+    // If game already started, only allow rejoin (disconnected player with same name)
     if (existingRoom && existingRoom.phase !== 'lobby') {
-      console.error(`❌ [${socketId}] Room ${actualRoomCode} is in ${existingRoom.phase} phase - cannot join`);
-      this.send(ws, 'error', { message: 'Could not join room. Game may have already started.' });
-      return;
+      const disconnected = existingRoom.getDisconnectedPlayerByName(playerName);
+      if (!disconnected) {
+        console.error(`❌ [${socketId}] Room ${actualRoomCode} is in ${existingRoom.phase} - cannot join (not a rejoin)`);
+        this.send(ws, 'error', { message: 'Could not join room. Game may have already started.' });
+        return;
+      }
     }
-    
+
     console.log(`🔄 [${socketId}] Joining room ${actualRoomCode} as ${playerName}`);
-    
-    // Now attempt to join the existing room
     const gameState = this.gameManager.joinRoom(socketId, actualRoomCode, playerName);
     
     if (!gameState) {
@@ -357,11 +451,12 @@ class SocketHandlers {
       const playersList = gameState.players.map(p => ({
         id: p.id,
         name: p.name,
-        isAlive: p.isAlive !== undefined ? p.isAlive : true
+        isAlive: p.isAlive !== undefined ? p.isAlive : true,
+        disconnected: p.disconnected === true
       }));
-      
+
       console.log(`📤 [${socketId}] Sending room-joined with ${playersList.length} players:`, playersList);
-      
+
       // Notify the joining player
       const roomJoinedData = {
         isCreator: isCreator,
@@ -408,27 +503,27 @@ class SocketHandlers {
       return;
     }
 
-    // Assign roles
-    const roleManager = new RoleManager();
-    roleManager.assignRoles(gameState.players);
-    
-    // Send roles to players
+    if (!gameState.startGame()) {
+      this.send(ws, 'error', { message: 'Could not start game (need at least 3 players or already started)' });
+      return;
+    }
+
+    // Send role to each player (GameState.assignRoles already ran inside startGame())
     gameState.players.forEach(player => {
       const playerState = gameState.getPlayerState(player.id);
       const wsForPlayer = this.findSocketById(player.id);
-      if (wsForPlayer) {
+      if (wsForPlayer && playerState) {
         this.send(wsForPlayer, 'role-assigned', playerState);
       }
     });
 
-    // Start night phase
-    gameState.startNightPhase();
     this.broadcastToRoom(roomCode, 'game-started', {
       players: gameState.players.map(p => ({
         id: p.id,
         name: p.name,
         role: p.role,
-        isAlive: p.isAlive
+        isAlive: p.isAlive,
+        disconnected: p.disconnected === true
       }))
     });
 
@@ -639,7 +734,8 @@ class SocketHandlers {
     const playersList = gameState.players.map(p => ({
       id: p.id,
       name: p.name,
-      isAlive: p.isAlive !== undefined ? p.isAlive : true
+      isAlive: p.isAlive !== undefined ? p.isAlive : true,
+      disconnected: p.disconnected === true
     }));
 
     console.log(`📤 [${socketId}] Preparing room-state response with ${playersList.length} players`);
@@ -648,7 +744,8 @@ class SocketHandlers {
       roomCode: targetRoom,
       isCreator: isCreator,
       players: playersList,
-      phase: gameState.phase
+      phase: gameState.phase,
+      timeRemaining: gameState.timeRemaining != null ? gameState.timeRemaining : 0
     };
     
     console.log(`📤 [${socketId}] Emitting room-state event with data:`, JSON.stringify(roomStateData, null, 2));
@@ -774,8 +871,11 @@ class SocketHandlers {
     const gameState = this.gameManager.getRoom(roomCode);
     if (!gameState) return;
 
-    const roleManager = new RoleManager();
-    roleManager.processNightActions(gameState);
+    const results = RoleManager.processNightActions(gameState.nightActions, gameState.players);
+    results.deaths.forEach(playerId => {
+      const p = gameState.players.find(pl => pl.id === playerId);
+      if (p) p.justKilled = true;
+    });
 
     const killed = gameState.players.filter(p => !p.isAlive && p.justKilled);
     gameState.players.forEach(p => p.justKilled = false);
