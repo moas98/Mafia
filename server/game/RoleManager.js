@@ -71,34 +71,61 @@ class RoleManager {
       detectiveResult: null
     };
 
-    // Get Mafia kill target
+    // Get alive mafia count
+    const aliveMafia = players.filter(p => p.role === 'mafia' && p.isAlive);
+    const mafiaCount = aliveMafia.length;
+
+    // Get Mafia kill target (requires majority vote)
     const mafiaVotes = {};
-    if (nightActions.mafia) {
+    if (nightActions.mafia && Array.isArray(nightActions.mafia)) {
       nightActions.mafia.forEach(action => {
-        if (action.targetId) {
+        if (action && action.targetId) {
           mafiaVotes[action.targetId] = (mafiaVotes[action.targetId] || 0) + 1;
         }
       });
     }
 
-    // Find most voted target
+    // Find most voted target (must have majority of alive mafia)
     let killTarget = null;
     let maxVotes = 0;
-    Object.keys(mafiaVotes).forEach(targetId => {
-      if (mafiaVotes[targetId] > maxVotes) {
-        maxVotes = mafiaVotes[targetId];
+    const voteTargets = Object.keys(mafiaVotes);
+    
+    // Find the target with most votes
+    voteTargets.forEach(targetId => {
+      const votes = mafiaVotes[targetId];
+      if (votes > maxVotes) {
+        maxVotes = votes;
         killTarget = targetId;
       }
     });
 
-    // Check if Doctor protected the target
-    const doctorProtection = nightActions.doctor?.[0]?.targetId;
-    if (doctorProtection === killTarget) {
-      results.protected = killTarget;
-      killTarget = null; // Protected from death
+    // Check for ties - if multiple targets have the same max votes, no kill
+    const tiedTargets = voteTargets.filter(targetId => mafiaVotes[targetId] === maxVotes);
+    if (tiedTargets.length > 1) {
+      killTarget = null; // Tie = no kill
     }
 
-    // Execute kill if not protected
+    // Require majority vote (more than half of alive mafia)
+    if (killTarget && mafiaCount > 0) {
+      const majorityRequired = Math.floor(mafiaCount / 2) + 1;
+      if (maxVotes < majorityRequired) {
+        killTarget = null; // No majority = no kill
+      }
+    }
+
+    // Check if Doctor protected the target
+    if (nightActions.doctor && Array.isArray(nightActions.doctor) && nightActions.doctor.length > 0) {
+      const doctorAction = nightActions.doctor[0];
+      if (doctorAction && doctorAction.targetId) {
+        const doctorProtection = doctorAction.targetId;
+        if (doctorProtection === killTarget) {
+          results.protected = killTarget;
+          killTarget = null; // Protected from death
+        }
+      }
+    }
+
+    // Execute kill if not protected and has valid target
     if (killTarget) {
       const target = players.find(p => p.id === killTarget);
       if (target && target.isAlive) {
@@ -107,15 +134,18 @@ class RoleManager {
       }
     }
 
-    // Process Detective check
-    if (nightActions.detective?.[0]?.targetId) {
-      const checkedPlayer = players.find(p => p.id === nightActions.detective[0].targetId);
-      if (checkedPlayer) {
-        results.detectiveResult = {
-          targetId: checkedPlayer.id,
-          targetName: checkedPlayer.name,
-          isMafia: checkedPlayer.role === 'mafia'
-        };
+    // Process Detective check (use first detective action)
+    if (nightActions.detective && Array.isArray(nightActions.detective) && nightActions.detective.length > 0) {
+      const detectiveAction = nightActions.detective[0];
+      if (detectiveAction && detectiveAction.targetId) {
+        const checkedPlayer = players.find(p => p.id === detectiveAction.targetId);
+        if (checkedPlayer) {
+          results.detectiveResult = {
+            targetId: checkedPlayer.id,
+            targetName: checkedPlayer.name,
+            isMafia: checkedPlayer.role === 'mafia'
+          };
+        }
       }
     }
 

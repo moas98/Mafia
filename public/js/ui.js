@@ -119,6 +119,11 @@ class UIManager {
 
         grid.innerHTML = '';
         
+        const isNight = gameState.phase === 'night';
+        const isDay = gameState.phase === 'day';
+        const canAct = gameState.canPerformAction();
+        const isCurrentPlayer = (playerId) => playerId === currentPlayerId;
+        
         players.forEach(player => {
             const card = document.createElement('div');
             card.className = `player-card ${!player.isAlive ? 'dead' : ''} ${player.disconnected ? 'disconnected' : ''}`;
@@ -152,8 +157,134 @@ class UIManager {
                 card.appendChild(icon);
             }
 
+            // Add action buttons during night phase
+            if (isNight && canAct && player.isAlive && !isCurrentPlayer(player.id)) {
+                const actionBtn = this.createActionButton(player.id, gameState.role);
+                if (actionBtn) {
+                    card.appendChild(actionBtn);
+                }
+            } else if (isNight && canAct && gameState.role === 'doctor' && isCurrentPlayer(player.id)) {
+                // Doctor can protect themselves
+                const actionBtn = this.createActionButton(player.id, 'doctor');
+                if (actionBtn) {
+                    card.appendChild(actionBtn);
+                }
+            }
+
+            // Add vote button during day phase
+            if (isDay && canAct && player.isAlive && !isCurrentPlayer(player.id)) {
+                const voteBtn = this.createVoteButton(player.id);
+                card.appendChild(voteBtn);
+            }
+
             grid.appendChild(card);
         });
+    }
+
+    /**
+     * Create action button for night phase
+     */
+    createActionButton(targetId, role) {
+        if (!role || role === 'citizen') return null;
+
+        const btn = document.createElement('button');
+        btn.className = 'player-action-btn';
+        btn.dataset.targetId = targetId;
+        
+        let btnText = '';
+        let btnClass = '';
+        
+        switch(role) {
+            case 'mafia':
+                btnText = 'Kill';
+                btnClass = 'action-kill';
+                break;
+            case 'doctor':
+                btnText = 'Protect';
+                btnClass = 'action-protect';
+                break;
+            case 'detective':
+                btnText = 'Investigate';
+                btnClass = 'action-investigate';
+                break;
+            default:
+                return null;
+        }
+        
+        btn.textContent = btnText;
+        btn.classList.add(btnClass);
+        
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.handleNightAction(targetId, role);
+        });
+        
+        return btn;
+    }
+
+    /**
+     * Create vote button for day phase
+     */
+    createVoteButton(targetId) {
+        const btn = document.createElement('button');
+        btn.className = 'player-action-btn action-vote';
+        btn.textContent = 'Vote';
+        btn.dataset.targetId = targetId;
+        
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.handleVote(targetId);
+        });
+        
+        return btn;
+    }
+
+    /**
+     * Handle night action
+     */
+    handleNightAction(targetId, role) {
+        if (!gameState.canPerformAction() || gameState.phase !== 'night') return;
+        
+        socketClient.sendNightAction(gameState.roomCode, role, targetId);
+        gameState.markActionSubmitted();
+        
+        // Update UI to show action was submitted
+        this.updateActionPanel();
+        this.renderPlayerCards(gameState.players, gameState.playerId);
+        
+        // Show confirmation
+        const targetPlayer = gameState.players.find(p => p.id === targetId);
+        if (targetPlayer) {
+            const actionNames = {
+                'mafia': 'eliminate',
+                'doctor': 'protect',
+                'detective': 'investigate'
+            };
+            console.log(`✅ Action submitted: ${actionNames[role]} ${targetPlayer.name}`);
+        }
+    }
+
+    /**
+     * Handle vote
+     */
+    handleVote(targetId) {
+        if (!gameState.canPerformAction() || gameState.phase !== 'day') return;
+        
+        socketClient.sendVote(gameState.roomCode, targetId);
+        gameState.markActionSubmitted();
+        
+        // Update UI
+        this.updateActionPanel();
+        this.renderPlayerCards(gameState.players, gameState.playerId);
+        
+        if (targetId === null) {
+            console.log(`✅ Vote skipped`);
+        } else {
+            const targetPlayer = gameState.players.find(p => p.id === targetId);
+            if (targetPlayer) {
+                console.log(`✅ Vote submitted for: ${targetPlayer.name}`);
+            }
+        }
     }
 
     /**
@@ -240,12 +371,12 @@ class UIManager {
             }
         } else if (gameState.phase === 'day') {
             if (dayActions) dayActions.classList.remove('hidden');
-            this.renderTargetList('vote-targets', gameState.getTargetablePlayers());
+            this.renderVoteList('vote-targets', gameState.getTargetablePlayers());
         }
     }
 
     /**
-     * Render target list for actions
+     * Render target list for actions (legacy - for separate action panel)
      */
     renderTargetList(containerId, players) {
         const container = document.getElementById(containerId);
@@ -266,7 +397,39 @@ class UIManager {
     }
 
     /**
-     * Select a target
+     * Render vote list with skip option
+     */
+    renderVoteList(containerId, players) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        // Add skip button
+        const skipBtn = document.createElement('button');
+        skipBtn.className = 'target-btn skip-btn';
+        skipBtn.textContent = 'Skip Vote';
+        skipBtn.dataset.targetId = null;
+        skipBtn.addEventListener('click', () => {
+            this.handleVote(null); // null means skip
+        });
+        container.appendChild(skipBtn);
+
+        // Add player buttons
+        players.forEach(player => {
+            const btn = document.createElement('button');
+            btn.className = 'target-btn';
+            btn.textContent = player.name;
+            btn.dataset.targetId = player.id;
+            btn.addEventListener('click', () => {
+                this.handleVote(player.id);
+            });
+            container.appendChild(btn);
+        });
+    }
+
+    /**
+     * Select a target (legacy method for separate action panel)
      */
     selectTarget(containerId, targetId) {
         // Remove previous selection
@@ -287,10 +450,12 @@ class UIManager {
             socketClient.sendNightAction(gameState.roomCode, action, targetId);
             gameState.markActionSubmitted();
             this.updateActionPanel();
+            this.renderPlayerCards(gameState.players, gameState.playerId);
         } else if (gameState.phase === 'day' && gameState.canPerformAction()) {
             socketClient.sendVote(gameState.roomCode, targetId);
             gameState.markActionSubmitted();
             this.updateActionPanel();
+            this.renderPlayerCards(gameState.players, gameState.playerId);
         }
     }
 

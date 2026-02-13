@@ -139,6 +139,20 @@ class GameState {
     const player = this.players.find(p => p.id === playerId);
     if (!player || !player.isAlive || player.role !== role) return false;
     
+    // Citizens cannot perform night actions
+    if (role === 'citizen') return false;
+    
+    // Validate target for roles that require one
+    if (role === 'mafia' || role === 'detective' || role === 'doctor') {
+      if (!targetId) return false;
+      
+      const target = this.players.find(p => p.id === targetId);
+      if (!target || !target.isAlive) return false;
+      
+      // Mafia, Detective, and Doctor cannot target themselves (except Doctor can protect themselves)
+      if (role !== 'doctor' && targetId === playerId) return false;
+    }
+    
     if (!this.nightActions[role]) {
       this.nightActions[role] = [];
     }
@@ -156,15 +170,13 @@ class GameState {
   /**
    * Record day vote
    * @param {string} voterId - Player voting
-   * @param {string} targetId - Player being voted for
+   * @param {string|null} targetId - Player being voted for (null = skip vote)
    */
   recordVote(voterId, targetId) {
     if (this.phase !== 'day') return false;
     
     const voter = this.players.find(p => p.id === voterId);
-    const target = this.players.find(p => p.id === targetId);
-    
-    if (!voter || !voter.isAlive || !target || !target.isAlive) return false;
+    if (!voter || !voter.isAlive) return false;
     
     // Remove previous vote
     if (this.dayVoteCount[voterId]) {
@@ -174,6 +186,16 @@ class GameState {
         prevTargetPlayer.votes = Math.max(0, prevTargetPlayer.votes - 1);
       }
     }
+    
+    // Handle skip vote (null targetId)
+    if (!targetId) {
+      delete this.dayVoteCount[voterId];
+      return true;
+    }
+    
+    // Validate target
+    const target = this.players.find(p => p.id === targetId);
+    if (!target || !target.isAlive) return false;
     
     // Record new vote
     this.dayVoteCount[voterId] = targetId;
@@ -206,6 +228,37 @@ class GameState {
     }
     
     return null;
+  }
+
+  /**
+   * Process votes and eliminate player with majority
+   * @returns {Object|null} Eliminated player object or null if no majority
+   */
+  processVotes() {
+    const mostVotedId = this.getMostVotedPlayer();
+    
+    if (!mostVotedId) {
+      // Clear votes if no majority
+      this.players.forEach(p => {
+        p.votes = 0;
+      });
+      this.dayVoteCount = {};
+      return null;
+    }
+    
+    // Eliminate the most voted player
+    const eliminated = this.players.find(p => p.id === mostVotedId);
+    if (eliminated) {
+      eliminated.isAlive = false;
+    }
+    
+    // Clear all votes
+    this.players.forEach(p => {
+      p.votes = 0;
+    });
+    this.dayVoteCount = {};
+    
+    return eliminated || null;
   }
 
   /**

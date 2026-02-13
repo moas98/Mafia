@@ -628,6 +628,78 @@ body {
     border: 2px solid var(--color-gray-medium);
 }
 
+/* Player Action Buttons */
+.player-action-btn {
+    margin-top: 8px;
+    padding: 6px 12px;
+    background: var(--color-gray-medium);
+    border: 2px solid var(--color-gray-light);
+    border-radius: 4px;
+    color: var(--color-white);
+    cursor: pointer;
+    transition: var(--transition);
+    font-size: 12px;
+    font-weight: 500;
+    width: 100%;
+    text-transform: uppercase;
+}
+
+.player-action-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.player-action-btn.action-kill {
+    background: var(--color-red);
+    border-color: var(--color-red);
+}
+
+.player-action-btn.action-kill:hover {
+    background: #B71C1C;
+    border-color: #B71C1C;
+}
+
+.player-action-btn.action-protect {
+    background: #4CAF50;
+    border-color: #4CAF50;
+}
+
+.player-action-btn.action-protect:hover {
+    background: #388E3C;
+    border-color: #388E3C;
+}
+
+.player-action-btn.action-investigate {
+    background: #2196F3;
+    border-color: #2196F3;
+}
+
+.player-action-btn.action-investigate:hover {
+    background: #1976D2;
+    border-color: #1976D2;
+}
+
+.player-action-btn.action-vote {
+    background: var(--color-red);
+    border-color: var(--color-red);
+}
+
+.player-action-btn.action-vote:hover {
+    background: #B71C1C;
+    border-color: #B71C1C;
+}
+
+.player-action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.player-card.dead .player-action-btn,
+.player-card.disconnected .player-action-btn {
+    display: none;
+}
+
 /* Action Panel */
 .action-panel {
     background: var(--color-gray-dark);
@@ -682,6 +754,17 @@ body {
 .target-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+.skip-btn {
+    background: var(--color-gray-light) !important;
+    border-color: var(--color-gray-light) !important;
+    font-weight: 600;
+}
+
+.skip-btn:hover {
+    background: var(--color-gray-medium) !important;
+    border-color: var(--color-gray-medium) !important;
 }
 
 /* Chat Section */
