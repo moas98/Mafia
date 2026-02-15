@@ -12,9 +12,11 @@ class GameState {
         this.players = [];
         this.timeRemaining = 0;
         this.round = 0;
+        this.nightNumber = 0; // 1 = first night, 2 = no actions night, 3+, etc.
         this.selectedTarget = null;
         this.nightActionSubmitted = false;
         this.voteSubmitted = false;
+        this.investigationResults = {}; // { [playerId]: true (mafia) | false (not mafia) } — for card borders
     }
 
     /**
@@ -36,10 +38,14 @@ class GameState {
 
     /**
      * Update phase
+     * @param {string} phase - 'lobby' | 'night' | 'day'
+     * @param {number} timeRemaining - seconds left
+     * @param {number} [nightNumber] - current night (1, 2, 3...); Night 2 = no actions
      */
-    updatePhase(phase, timeRemaining) {
+    updatePhase(phase, timeRemaining, nightNumber) {
         this.phase = phase;
         this.timeRemaining = timeRemaining;
+        if (nightNumber !== undefined && nightNumber !== null) this.nightNumber = nightNumber;
         this.selectedTarget = null;
         
         // Reset action flags on phase change
@@ -55,6 +61,16 @@ class GameState {
      */
     updatePlayers(players) {
         this.players = players;
+    }
+
+    /**
+     * Set investigation results (from server) for officer card borders
+     * @param {Object} results - { [playerId]: true (mafia) | false (not mafia) }
+     */
+    setInvestigationResults(results) {
+        if (results && typeof results === 'object') {
+            this.investigationResults = { ...results };
+        }
     }
 
     /**
@@ -90,6 +106,7 @@ class GameState {
 
     /**
      * Check if player can perform action
+     * Officer: 1 investigate per night. Doctor: 1 protect per night.
      */
     canPerformAction() {
         if (!this.isAlive()) return false;

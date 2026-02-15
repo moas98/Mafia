@@ -89,6 +89,21 @@ class App {
             refreshPlayersBtn.addEventListener('click', () => this.handleRefreshPlayers());
         }
 
+        const leaveRoomBtn = document.getElementById('leave-room-btn');
+        if (leaveRoomBtn) {
+            leaveRoomBtn.addEventListener('click', () => this.handleLeaveRoom());
+        }
+
+        const leaveRoomGameBtn = document.getElementById('leave-room-game-btn');
+        if (leaveRoomGameBtn) {
+            leaveRoomGameBtn.addEventListener('click', () => this.handleLeaveRoom());
+        }
+
+        const submitVoteBtn = document.getElementById('submit-vote-btn');
+        if (submitVoteBtn) {
+            submitVoteBtn.addEventListener('click', () => this.handleSubmitVote());
+        }
+
         // Game screen - Chat
         const publicChatInput = document.getElementById('public-chat-input');
         const publicSendBtn = document.getElementById('public-send-btn');
@@ -183,12 +198,18 @@ class App {
             const currentScreen = uiManager.currentScreen;
             console.log('🔍 Current screen before join:', currentScreen);
             
-            // Persist room for rejoin on refresh
+            // Persist room for rejoin on refresh (sessionStorage) and pre-fill next visit (localStorage)
             try {
                 const rc = data.roomCode || gameState.roomCode || '';
                 const pn = gameState.playerName || '';
-                if (rc) sessionStorage.setItem('mafia_roomCode', rc);
-                if (pn) sessionStorage.setItem('mafia_playerName', pn);
+                if (rc) {
+                    sessionStorage.setItem('mafia_roomCode', rc);
+                    localStorage.setItem('mafia_roomCode', rc);
+                }
+                if (pn) {
+                    sessionStorage.setItem('mafia_playerName', pn);
+                    localStorage.setItem('mafia_playerName', pn);
+                }
             } catch (e) { /* ignore */ }
 
             if (currentScreen === 'landing' || !currentScreen) {
@@ -257,14 +278,16 @@ class App {
         // Game started
         socketClient.on('game-started', (data) => {
             gameState.updatePlayers(data.players);
+            if (data.investigationResults) gameState.setInvestigationResults(data.investigationResults);
             uiManager.showScreen('game');
             uiManager.renderPlayerCards(data.players, gameState.playerId);
         });
 
-        // Phase updates
+        // Phase updates (include nightNumber for Night 2 = no actions)
         socketClient.on('phase-update', (data) => {
-            gameState.updatePhase(data.phase, data.timeRemaining);
-            uiManager.updatePhaseIndicator(data.phase, data.timeRemaining);
+            gameState.updatePhase(data.phase, data.timeRemaining, data.nightNumber);
+            uiManager.updatePhaseIndicator(data.phase, data.timeRemaining, data.nightNumber);
+            uiManager.updateActionPanel();
             // Refresh player cards to show updated states
             uiManager.renderPlayerCards(gameState.players, gameState.playerId);
         });
@@ -291,6 +314,9 @@ class App {
             if (data.players) {
                 gameState.updatePlayers(data.players);
             }
+            if (data.investigationResults) {
+                gameState.setInvestigationResults(data.investigationResults);
+            }
             uiManager.updatePhaseIndicator('day', data.timeRemaining);
             uiManager.updateActionPanel();
             uiManager.renderPlayerCards(gameState.players, gameState.playerId);
@@ -299,13 +325,20 @@ class App {
             uiManager.toggleMafiaChat(false);
         });
 
-        // Night action confirmed
+        // Night action confirmed — disable further actions for this night (one kill/investigate/protect per night)
         socketClient.on('night-action-confirmed', (data) => {
             console.log('Night action confirmed:', data);
+            gameState.markActionSubmitted();
+            uiManager.updateActionPanel();
         });
 
-        // Detective result
+        // Detective result — save for card borders and show alert
         socketClient.on('detective-result', (data) => {
+            if (data.targetId != null) {
+                gameState.setInvestigationResults({ ...gameState.investigationResults, [data.targetId]: data.isMafia });
+                uiManager.updateActionPanel();
+                uiManager.renderPlayerCards(gameState.players, gameState.playerId);
+            }
             const result = data.isMafia ? 'is Mafia' : 'is not Mafia';
             alert(`Investigation Result: ${data.targetName} ${result}`);
         });
@@ -403,6 +436,27 @@ class App {
             uiManager.displayRoomsList(data.rooms);
         });
 
+        // Room no longer exists (deleted or closed) — notify and return to main page (only if we're in that room)
+        socketClient.on('room-deleted', (data) => {
+            const deletedRoom = data?.roomCode;
+            if (!gameState.roomCode || gameState.roomCode === deletedRoom) {
+                this.handleRoomDeleted(data);
+            }
+        });
+
+        // Kicked from room by host — return to main page
+        socketClient.on('kicked', (data) => {
+            this.handleRoomDeleted({ ...data, message: data.message || 'You were kicked from the room by the host.' });
+        });
+
+        // Someone was kicked — update players list (creator and others in lobby)
+        socketClient.on('player-kicked', (data) => {
+            if (data.players && Array.isArray(data.players)) {
+                gameState.updatePlayers(data.players);
+                uiManager.updatePlayersList(data.players, this.isCreator);
+            }
+        });
+
         // Room state (fallback/refresh)
         socketClient.on('room-state', (data) => {
             console.log('📥 ===== ROOM STATE RECEIVED =====');
@@ -412,7 +466,11 @@ class App {
             
             if (data.error) {
                 console.error('❌ Room state error:', data.error);
-                alert('Error getting room state: ' + data.error);
+                if (data.error === 'Room not found' || (data.error && data.error.toLowerCase().includes('room not found'))) {
+                    this.handleRoomDeleted({ message: data.error, roomCode: data.roomCode });
+                } else {
+                    alert('Error getting room state: ' + data.error);
+                }
                 return;
             }
             
@@ -428,8 +486,9 @@ class App {
                 uiManager.updatePlayersList(data.players, data.isCreator);
                 // If we're in game phase (e.g. rejoin after refresh), show game screen
                 if (data.phase === 'night' || data.phase === 'day') {
-                    gameState.updatePhase(data.phase, data.timeRemaining != null ? data.timeRemaining : 0);
+                    gameState.updatePhase(data.phase, data.timeRemaining != null ? data.timeRemaining : 0, data.nightNumber);
                     gameState.updatePlayers(data.players);
+                    if (data.investigationResults) gameState.setInvestigationResults(data.investigationResults);
                     uiManager.showScreen('game');
                     uiManager.renderPlayerCards(data.players, gameState.playerId);
                     uiManager.updatePhaseIndicator(data.phase, data.timeRemaining != null ? data.timeRemaining : 0);
@@ -549,6 +608,10 @@ class App {
             joinHandled = true;
             console.log('✅ Join successful, navigating to lobby');
             uiManager.updateRoomCode(roomCode);
+            try {
+                if (roomCode) localStorage.setItem('mafia_roomCode', roomCode);
+                if (playerName) localStorage.setItem('mafia_playerName', playerName);
+            } catch (e) { /* ignore */ }
             uiManager.showScreen('lobby');
             
             // Request room state after a short delay as fallback
@@ -927,27 +990,64 @@ class App {
     }
 
     /**
+     * Handle Submit Vote — send current selection (or skip if none) and end vote for this player
+     */
+    handleSubmitVote() {
+        if (gameState.phase !== 'day' || !gameState.canPerformAction()) return;
+        const targetId = gameState.selectedTarget !== undefined ? gameState.selectedTarget : null;
+        uiManager.handleVote(targetId);
+    }
+
+    /**
+     * Handle leave room (lobby or game) — notify server and return to main page
+     */
+    handleLeaveRoom() {
+        const roomCode = gameState.roomCode;
+        if (roomCode) {
+            socketClient.leaveRoom(roomCode);
+        }
+        this.returnToMainPage();
+    }
+
+    /**
      * Handle play again
      */
     handlePlayAgain() {
-        // Reset game state
+        this.returnToMainPage();
+    }
+
+    /**
+     * Room no longer exists (deleted or closed). Notify player and return to main page.
+     * @param {{ message?: string, roomCode?: string }} data - From room-deleted or room-state error
+     */
+    handleRoomDeleted(data) {
+        const message = data?.message || 'This room no longer exists or was closed.';
+        uiManager.showModeratorMessage(message);
+        this.returnToMainPage();
+    }
+
+    /**
+     * Clear state and show landing (main) page.
+     */
+    returnToMainPage() {
         gameState.roomCode = null;
         gameState.playerName = null;
         gameState.role = null;
         gameState.phase = 'lobby';
         gameState.players = [];
 
-        // Clear persisted room so we don't auto-rejoin
         try {
             sessionStorage.removeItem('mafia_roomCode');
             sessionStorage.removeItem('mafia_playerName');
+            localStorage.removeItem('mafia_roomCode');
+            localStorage.removeItem('mafia_playerName');
         } catch (e) { /* ignore */ }
 
-        // Clear inputs
-        document.getElementById('room-code-input').value = '';
-        document.getElementById('player-name-input').value = '';
+        const roomInput = document.getElementById('room-code-input');
+        const nameInput = document.getElementById('player-name-input');
+        if (roomInput) roomInput.value = '';
+        if (nameInput) nameInput.value = '';
 
-        // Show landing screen
         uiManager.showScreen('landing');
     }
 
@@ -974,6 +1074,16 @@ window.addEventListener('unhandledrejection', (event) => {
 document.addEventListener('DOMContentLoaded', () => {
     const app = new App();
 
+    // Pre-fill room code and player name from last session (localStorage) so user doesn't have to re-type
+    try {
+        const savedRoom = localStorage.getItem('mafia_roomCode');
+        const savedName = localStorage.getItem('mafia_playerName');
+        const roomInput = document.getElementById('room-code-input');
+        const nameInput = document.getElementById('player-name-input');
+        if (roomInput && savedRoom) roomInput.value = savedRoom;
+        if (nameInput && savedName) nameInput.value = savedName;
+    } catch (e) { /* ignore */ }
+
     // Connect to server FIRST
     const ws = socketClient.connect();
 
@@ -983,7 +1093,7 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log('✅ WebSocket connected, setting up listeners...');
             setTimeout(() => {
                 socketClient.getRooms();
-                // If we have a saved room (e.g. after refresh), rejoin automatically
+                // If we have a saved room in session (e.g. after refresh), rejoin automatically
                 try {
                     const savedRoom = sessionStorage.getItem('mafia_roomCode');
                     const savedName = sessionStorage.getItem('mafia_playerName');

@@ -7,9 +7,11 @@ class GameState {
     this.phase = 'lobby'; // 'lobby' | 'night' | 'day'
     this.players = [];
     this.nightActions = {};
+    this.investigationResults = {}; // { [playerId]: true (mafia) | false (not mafia) } — persisted for officer
     this.votes = {};
     this.dayVoteCount = {};
     this.round = 0;
+    this.nightNumber = 0; // 1 = first night, 2 = second night (no actions), 3+, etc.
     this.phaseTimer = null;
     this.timeRemaining = 0;
     this.winner = null;
@@ -88,18 +90,26 @@ class GameState {
     
     this.assignRoles();
     this.round = 1;
-    this.transitionToNight();
+    this.transitionToNight({ firstNight: true });
     return true;
   }
 
   /**
    * Transition to night phase
+   * @param {Object} [opts] - Options: { firstNight: true } for game start
    */
-  transitionToNight() {
+  transitionToNight(opts) {
+    const timing = require('../config').getTiming();
     this.phase = 'night';
     this.nightActions = {};
     this.votes = {};
-    this.timeRemaining = 60; // 60 seconds for night phase
+    this.timeRemaining = timing.nightRoundTime;
+
+    if (opts && opts.firstNight) {
+      this.nightNumber = 1;
+    } else {
+      this.nightNumber = (this.nightNumber || 0) + 1;
+    }
     
     // Reset vote counts
     this.players.forEach(p => {
@@ -112,9 +122,11 @@ class GameState {
    * @param {Object} nightResults - Results from night actions
    */
   transitionToDay(nightResults) {
+    const timing = require('../config').getTiming();
     this.phase = 'day';
     this.dayVoteCount = {};
-    this.timeRemaining = 120; // 120 seconds for day phase
+    this.dayHasVoted = {}; // track who has submitted a vote (so we can end day when all voted)
+    this.timeRemaining = timing.dayRoundTime;
     
     // Process deaths
     if (nightResults.deaths.length > 0) {
@@ -157,12 +169,10 @@ class GameState {
       this.nightActions[role] = [];
     }
     
-    // Remove existing action from this player
-    this.nightActions[role] = this.nightActions[role].filter(
-      a => a.playerId !== playerId
-    );
+    // One action per night per player: kill, investigate, protect — once submitted, no more changes
+    const alreadySubmitted = this.nightActions[role].some(a => a.playerId === playerId);
+    if (alreadySubmitted) return false;
     
-    // Add new action
     this.nightActions[role].push({ playerId, targetId });
     return true;
   }
@@ -178,6 +188,8 @@ class GameState {
     const voter = this.players.find(p => p.id === voterId);
     if (!voter || !voter.isAlive) return false;
     
+    if (!this.dayHasVoted) this.dayHasVoted = {};
+    
     // Remove previous vote
     if (this.dayVoteCount[voterId]) {
       const prevTarget = this.dayVoteCount[voterId];
@@ -190,6 +202,7 @@ class GameState {
     // Handle skip vote (null targetId)
     if (!targetId) {
       delete this.dayVoteCount[voterId];
+      this.dayHasVoted[voterId] = true;
       return true;
     }
     
@@ -199,11 +212,22 @@ class GameState {
     
     // Record new vote
     this.dayVoteCount[voterId] = targetId;
+    this.dayHasVoted[voterId] = true;
     if (target) {
       target.votes = (target.votes || 0) + 1;
     }
     
     return true;
+  }
+
+  /**
+   * Whether every alive player has submitted a vote (or skip) this day
+   */
+  allAliveHaveVoted() {
+    const alive = this.players.filter(p => p.isAlive);
+    if (alive.length === 0) return false;
+    if (!this.dayHasVoted) return false;
+    return alive.every(p => this.dayHasVoted[p.id] === true);
   }
 
   /**

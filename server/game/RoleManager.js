@@ -125,11 +125,10 @@ class RoleManager {
       }
     }
 
-    // Execute kill if not protected and has valid target
+    // Record kill (caller applies deaths in transitionToDay — single source of truth, no double-mutation)
     if (killTarget) {
       const target = players.find(p => p.id === killTarget);
       if (target && target.isAlive) {
-        target.isAlive = false;
         results.deaths.push(killTarget);
       }
     }

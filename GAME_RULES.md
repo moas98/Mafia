@@ -72,10 +72,16 @@ Mafia is a social deduction game where players are divided into two teams: **Cit
   - Players discuss and share information
   - Detective can share investigation results (but be careful!)
 - **Voting**: 
-  - All alive players vote to eliminate one player
-  - Majority vote required (more than half of alive players)
-  - Player with most votes is eliminated
-  - If no majority, no one is eliminated
+  - Choose a player to vote out (or **Skip Vote**), then click **Submit Vote**
+  - When **all alive players** have submitted their vote, the day phase **ends immediately** (no need to wait for the timer)
+  - Majority vote required (more than half of alive players) to eliminate someone
+  - Player with most votes is eliminated; if no majority, no one is eliminated
+
+## Devices & Responsive Play
+
+- The game is **responsive** and works on **all screen sizes**: phones, tablets, and desktops.
+- Use any device with a modern browser; layout and buttons adapt to your screen.
+- On small screens, tap targets are sized for touch; on large screens, use mouse or trackpad as usual.
 
 ## Game Flow
 

@@ -142,6 +142,22 @@ class GameManager {
   }
 
   /**
+   * Remove room (call when everyone has left)
+   * @param {string} roomCode - Room code
+   */
+  removeRoom(roomCode) {
+    const gameState = this.rooms.get(roomCode);
+    if (gameState) {
+      this.rooms.delete(roomCode);
+      // Clear any playerRooms entries that still pointed here (defensive)
+      for (const [playerId, code] of this.playerRooms.entries()) {
+        if (code === roomCode) this.playerRooms.delete(playerId);
+      }
+      console.log(`🗑️ Room ${roomCode} removed (everyone left).`);
+    }
+  }
+
+  /**
    * Get room info
    * @param {string} roomCode - Room code
    * @returns {Object|null} Room info or null

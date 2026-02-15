@@ -9,6 +9,9 @@ class WinCondition {
    */
   static checkWinCondition(players) {
     const alivePlayers = players.filter(p => p.isAlive);
+    if (alivePlayers.length === 0) {
+      return { winner: 'draw', reason: 'All players have been eliminated.' };
+    }
     const aliveMafia = alivePlayers.filter(p => p.role === 'mafia');
     const aliveCitizens = alivePlayers.filter(
       p => p.role === 'citizen' || p.role === 'detective' || p.role === 'doctor'

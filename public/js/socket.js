@@ -263,6 +263,20 @@ class SocketClient {
     }
 
     /**
+     * Leave room (voluntary; server will remove player from room)
+     */
+    leaveRoom(roomCode) {
+        this.send('leave-room', { roomCode });
+    }
+
+    /**
+     * Kick a player from the room (room creator only, lobby only)
+     */
+    kickPlayer(roomCode, targetPlayerId) {
+        this.send('kick-player', { roomCode, targetPlayerId });
+    }
+
+    /**
      * Request current room state
      */
     requestRoomState(roomCode) {

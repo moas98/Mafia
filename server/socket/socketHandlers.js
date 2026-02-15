@@ -209,6 +209,12 @@ class SocketHandlers {
       case 'request-room-state':
         this.handleRequestRoomState(ws, socketId, eventData);
         break;
+      case 'leave-room':
+        this.handleLeaveRoom(ws, socketId, eventData);
+        break;
+      case 'kick-player':
+        this.handleKickPlayer(ws, socketId, eventData);
+        break;
       default:
         console.warn(`⚠️ [${socketId}] Unknown event: ${event}`);
     }
@@ -369,6 +375,8 @@ class SocketHandlers {
       
       // Broadcast updated room player count
       this.broadcastRoomPlayerCount(normalizedCode);
+      // Real-time: update Available Rooms for all clients
+      this.broadcastRoomsList();
     } catch (error) {
       console.error(`❌ Error in handleCreateRoom:`, error);
       this.send(ws, 'error', { message: 'Failed to create room: ' + error.message });
@@ -480,6 +488,8 @@ class SocketHandlers {
       
       // Broadcast updated room player count
       this.broadcastRoomPlayerCount(actualRoomCode);
+      // Real-time: update Available Rooms for all clients
+      this.broadcastRoomsList();
     } catch (error) {
       console.error(`❌ Error in handleJoinRoom:`, error);
       this.send(ws, 'error', { message: 'Failed to join room: ' + error.message });
@@ -494,7 +504,7 @@ class SocketHandlers {
     const gameState = this.gameManager.getRoom(roomCode);
     
     if (!gameState) {
-      this.send(ws, 'error', { message: 'Room not found' });
+      this.sendRoomDeleted(ws, roomCode);
       return;
     }
 
@@ -522,13 +532,16 @@ class SocketHandlers {
         id: p.id,
         name: p.name,
         role: p.role,
-        isAlive: p.isAlive,
+        isAlive: p.isAlive !== undefined ? p.isAlive : true,
         disconnected: p.disconnected === true
-      }))
+      })),
+      investigationResults: gameState.investigationResults || {}
     });
 
     this.broadcastModeratorMessage(roomCode, 'Night falls. The Mafia awakens...');
     this.startPhaseTimer(roomCode);
+    // Real-time: room is now "In Game", update Available Rooms for all clients
+    this.broadcastRoomsList();
   }
 
   /**
@@ -538,27 +551,39 @@ class SocketHandlers {
     const { roomCode, action, target } = data;
     const gameState = this.gameManager.getRoom(roomCode);
     
-    if (!gameState) return;
-    
+    if (!gameState) {
+      this.sendRoomDeleted(ws, roomCode);
+      return;
+    }
+
     const player = gameState.players.find(p => p.id === socketId);
-    if (!player) return;
+    if (!player) {
+      this.send(ws, 'error', { message: 'You are not in this game' });
+      return;
+    }
 
     const success = gameState.recordNightAction(socketId, player.role, target);
     
     if (success) {
-      // Send confirmation
+      // Send confirmation (Officer = 1 investigate per night, Doctor = 1 protect per night)
       this.send(ws, 'night-action-confirmed', { action, target });
       
-      // For Detective, send result immediately
+      // For Detective/Officer, send result immediately and persist on server for card borders
       if (player.role === 'detective' && target) {
         const targetPlayer = gameState.players.find(p => p.id === target);
         if (targetPlayer) {
+          const isMafia = targetPlayer.role === 'mafia';
+          if (!gameState.investigationResults) gameState.investigationResults = {};
+          gameState.investigationResults[target] = isMafia;
           this.send(ws, 'detective-result', {
+            targetId: target,
             targetName: targetPlayer.name,
-            isMafia: targetPlayer.role === 'mafia'
+            isMafia: isMafia
           });
         }
       }
+    } else {
+      this.send(ws, 'error', { message: 'Invalid night action. You can only perform one action per night, and the target must be alive.' });
     }
   }
 
@@ -569,7 +594,10 @@ class SocketHandlers {
     const { roomCode, targetId } = data;
     const gameState = this.gameManager.getRoom(roomCode);
     
-    if (!gameState) return;
+    if (!gameState) {
+      this.sendRoomDeleted(ws, roomCode);
+      return;
+    }
 
     const success = gameState.recordVote(socketId, targetId);
     
@@ -583,6 +611,14 @@ class SocketHandlers {
           votes: p.votes
         }))
       });
+      // If all alive players have voted, end day phase early
+      if (gameState.allAliveHaveVoted()) {
+        if (this.phaseTimers.has(roomCode)) {
+          clearInterval(this.phaseTimers.get(roomCode));
+          this.phaseTimers.delete(roomCode);
+        }
+        this.processDayPhase(roomCode);
+      }
     }
   }
 
@@ -593,7 +629,10 @@ class SocketHandlers {
     const { roomCode, message, chatType } = data;
     const gameState = this.gameManager.getRoom(roomCode);
     
-    if (!gameState) return;
+    if (!gameState) {
+      this.sendRoomDeleted(ws, roomCode);
+      return;
+    }
 
     const player = gameState.players.find(p => p.id === socketId);
     if (!player) return;
@@ -627,6 +666,80 @@ class SocketHandlers {
   handleGetRooms(ws, socketId) {
     const rooms = this.gameManager.getAvailableRooms();
     this.send(ws, 'rooms-list', { rooms });
+  }
+
+  /**
+   * Handle leave room (voluntary leave; player returns to main page)
+   */
+  handleLeaveRoom(ws, socketId, data) {
+    const roomCode = this.gameManager.getPlayerRoom(socketId) || (data && data.roomCode);
+    this.send(ws, 'leave-room-confirmed', { roomCode });
+    if (!roomCode) return;
+
+    this.gameManager.leaveRoom(socketId);
+    this.removeSocketFromRoom(ws, socketId, roomCode);
+    this.broadcastRoomPlayerCount(roomCode);
+    this.broadcastRoomsList();
+
+    const socketsInRoom = this.roomSockets.get(roomCode);
+    if (!socketsInRoom || socketsInRoom.size === 0) {
+      if (this.phaseTimers.has(roomCode)) {
+        clearInterval(this.phaseTimers.get(roomCode));
+        this.phaseTimers.delete(roomCode);
+      }
+      this.gameManager.removeRoom(roomCode);
+      this.broadcastRoomsList();
+      this.broadcast('room-deleted', { roomCode, message: 'This room was closed. Returning to main page.' });
+    }
+  }
+
+  /**
+   * Handle kick player (room creator only, lobby only)
+   */
+  handleKickPlayer(ws, socketId, data) {
+    const { roomCode, targetPlayerId } = data || {};
+    const gameState = roomCode ? this.gameManager.getRoom(roomCode) : null;
+    if (!gameState) {
+      this.send(ws, 'error', { message: 'Room not found' });
+      return;
+    }
+    if (gameState.phase !== 'lobby') {
+      this.send(ws, 'error', { message: 'Players can only be kicked before the game starts.' });
+      return;
+    }
+    if (!this.gameManager.isRoomCreator(socketId, roomCode)) {
+      this.send(ws, 'error', { message: 'Only the room creator can kick players.' });
+      return;
+    }
+    const target = gameState.players.find(p => p.id === targetPlayerId);
+    if (!target) {
+      this.send(ws, 'error', { message: 'Player not in this room.' });
+      return;
+    }
+    if (targetPlayerId === socketId) {
+      this.send(ws, 'error', { message: 'You cannot kick yourself.' });
+      return;
+    }
+    const kickedWs = this.findSocketById(targetPlayerId);
+    gameState.removePlayer(targetPlayerId);
+    this.gameManager.playerRooms.delete(targetPlayerId);
+    if (kickedWs) {
+      this.removeSocketFromRoom(kickedWs, targetPlayerId, roomCode);
+      this.send(kickedWs, 'kicked', { roomCode, message: 'You were kicked from the room by the host.' });
+    }
+    const playersList = gameState.players.map(p => ({
+      id: p.id,
+      name: p.name,
+      isAlive: p.isAlive !== undefined ? p.isAlive : true,
+      disconnected: p.disconnected === true
+    }));
+    this.broadcastToRoom(roomCode, 'player-kicked', {
+      kickedPlayerId: targetPlayerId,
+      kickedPlayerName: target.name,
+      players: playersList
+    });
+    this.broadcastRoomPlayerCount(roomCode);
+    this.broadcastRoomsList();
   }
 
   /**
@@ -727,6 +840,7 @@ class SocketHandlers {
     if (!gameState) {
       console.error(`❌ [${socketId}] Room ${targetRoom} not found for state request`);
       this.send(ws, 'room-state', { error: 'Room not found', roomCode: targetRoom });
+      this.sendRoomDeleted(ws, targetRoom);
       return;
     }
 
@@ -745,7 +859,9 @@ class SocketHandlers {
       isCreator: isCreator,
       players: playersList,
       phase: gameState.phase,
-      timeRemaining: gameState.timeRemaining != null ? gameState.timeRemaining : 0
+      timeRemaining: gameState.timeRemaining != null ? gameState.timeRemaining : 0,
+      nightNumber: gameState.nightNumber || null,
+      investigationResults: gameState.investigationResults || {}
     };
     
     console.log(`📤 [${socketId}] Emitting room-state event with data:`, JSON.stringify(roomStateData, null, 2));
@@ -780,7 +896,26 @@ class SocketHandlers {
   }
 
   /**
+   * Broadcast available rooms list to all connected clients (real-time Available Rooms)
+   */
+  broadcastRoomsList() {
+    const rooms = this.gameManager.getAvailableRooms();
+    this.broadcast('rooms-list', { rooms });
+  }
+
+  /**
+   * Notify a client that the room no longer exists (deleted or never existed); client should return to main page.
+   */
+  sendRoomDeleted(ws, roomCode) {
+    this.send(ws, 'room-deleted', {
+      roomCode: roomCode || null,
+      message: 'This room no longer exists or was closed. Returning to main page.'
+    });
+  }
+
+  /**
    * Handle disconnect
+   * Room stays alive until everyone has left; then the room is removed from the server.
    */
   handleDisconnect(ws, socketId) {
     const roomCode = this.gameManager.getPlayerRoom(socketId);
@@ -795,8 +930,22 @@ class SocketHandlers {
     if (roomCode) {
       // Remove from room tracking
       this.removeSocketFromRoom(ws, socketId, roomCode);
-      // Broadcast updated room count
+      // Broadcast updated room count to remaining players
       this.broadcastRoomPlayerCount(roomCode);
+      // Real-time: update Available Rooms for all clients (player count changed or room removed)
+      this.broadcastRoomsList();
+      // When everyone has left, remove the room and clear its timer
+      const socketsInRoom = this.roomSockets.get(roomCode);
+      if (!socketsInRoom || socketsInRoom.size === 0) {
+        if (this.phaseTimers.has(roomCode)) {
+          clearInterval(this.phaseTimers.get(roomCode));
+          this.phaseTimers.delete(roomCode);
+        }
+        this.gameManager.removeRoom(roomCode);
+        this.broadcastRoomsList(); // List changed (room removed)
+        // Notify all clients so anyone still viewing this room (e.g. reconnecting) can return to main page
+        this.broadcast('room-deleted', { roomCode, message: 'This room was closed. Returning to main page.' });
+      }
     }
     
     // Broadcast updated online count
@@ -839,14 +988,16 @@ class SocketHandlers {
     const gameState = this.gameManager.getRoom(roomCode);
     if (!gameState) return;
 
-    let timeRemaining = gameState.phase === 'night' ? 60 : 120; // 60s night, 120s day
+    const timing = require('../config').getTiming();
+    let timeRemaining = gameState.phase === 'night' ? timing.nightRoundTime : timing.dayRoundTime;
 
     const timer = setInterval(() => {
       timeRemaining--;
       
       this.broadcastToRoom(roomCode, 'phase-update', {
         phase: gameState.phase,
-        timeRemaining: timeRemaining
+        timeRemaining: timeRemaining,
+        nightNumber: gameState.nightNumber || null
       });
 
       if (timeRemaining <= 0) {
@@ -872,13 +1023,13 @@ class SocketHandlers {
     if (!gameState) return;
 
     const results = RoleManager.processNightActions(gameState.nightActions, gameState.players);
-    results.deaths.forEach(playerId => {
-      const p = gameState.players.find(pl => pl.id === playerId);
-      if (p) p.justKilled = true;
-    });
 
-    const killed = gameState.players.filter(p => !p.isAlive && p.justKilled);
-    gameState.players.forEach(p => p.justKilled = false);
+    // Apply deaths (single source of truth — RoleManager no longer mutates players)
+    gameState.transitionToDay(results);
+
+    const killed = results.deaths
+      .map(playerId => gameState.players.find(p => p.id === playerId))
+      .filter(Boolean);
 
     if (killed.length > 0) {
       killed.forEach(player => {
@@ -897,14 +1048,15 @@ class SocketHandlers {
       this.broadcastToRoom(roomCode, 'game-ended', { ...winResult, gameEnded: true });
       return;
     }
-
-    // Start day phase
-    gameState.transitionToDay(results);
     this.broadcastToRoom(roomCode, 'day-phase', {
-      players: gameState.players.filter(p => p.isAlive).map(p => ({
+      players: gameState.players.map(p => ({
         id: p.id,
-        name: p.name
-      }))
+        name: p.name,
+        isAlive: p.isAlive !== undefined ? p.isAlive : true,
+        votes: p.votes || 0,
+        disconnected: p.disconnected === true
+      })),
+      investigationResults: gameState.investigationResults || {}
     });
     this.startPhaseTimer(roomCode);
   }

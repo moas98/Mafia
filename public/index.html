@@ -97,6 +97,10 @@
                     <button id="start-game-btn" class="btn btn-primary">Start Game</button>
                 </div>
                 
+                <div style="margin-top: 20px;">
+                    <button id="leave-room-btn" class="btn btn-secondary" title="Leave room and return to main page">Leave Room</button>
+                </div>
+                
                 <p class="waiting-message">Waiting for players to join...</p>
             </div>
         </div>
@@ -108,6 +112,7 @@
         <header class="game-header">
             <div class="header-left">
                 <span id="room-code-header" class="room-code-small">----</span>
+                <button id="leave-room-game-btn" class="btn btn-secondary btn-small" title="Leave room">Leave</button>
             </div>
             <div class="header-center">
                 <div id="phase-indicator" class="phase-indicator">
@@ -132,6 +137,8 @@
             <div id="action-panel" class="action-panel">
                 <div id="night-actions" class="hidden">
                     <h3>Night Actions</h3>
+                    <p id="night-no-actions-msg" class="hidden" style="color: rgba(255,200,100,0.95); margin: 10px 0;">Night 2 — No special actions tonight. Officer, Doctor, and Mafia cannot act.</p>
+                    <p id="night-action-used-msg" class="hidden" style="color: rgba(150,255,150,0.9); margin: 10px 0;">You have used your action this night. Kill / Investigate / Protect can only be used once per night.</p>
                     <div id="detective-action" class="action-section hidden">
                         <p>Choose a player to investigate:</p>
                         <div id="detective-targets" class="target-list"></div>
@@ -148,8 +155,9 @@
 
                 <div id="day-actions" class="hidden">
                     <h3>Vote to Eliminate</h3>
-                    <p style="color: rgba(255,255,255,0.7); font-size: 14px; margin-bottom: 10px;">Choose a player to vote out, or skip if you're unsure.</p>
+                    <p style="color: rgba(255,255,255,0.7); font-size: 14px; margin-bottom: 10px;">Choose a player to vote out (or Skip), then click Submit Vote. When everyone has voted, the phase ends.</p>
                     <div id="vote-targets" class="target-list"></div>
+                    <button id="submit-vote-btn" type="button" class="btn btn-primary submit-vote-btn">Submit Vote</button>
                 </div>
             </div>
 
