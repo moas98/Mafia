@@ -225,7 +225,7 @@ class UIManager {
         let btnText = '';
         let btnClass = '';
         
-        switch(role) {
+        switch (role) {
             case 'mafia':
                 btnText = 'Kill';
                 btnClass = 'action-kill';
@@ -601,7 +601,7 @@ class UIManager {
      * Add chat message
      */
     addChatMessage(playerId, playerName, message, chatType) {
-        const messagesContainer = chatType === 'mafia' 
+        const messagesContainer = chatType === 'mafia'
             ? document.getElementById('mafia-messages')
             : document.getElementById('public-messages');
         
@@ -678,7 +678,7 @@ class UIManager {
                 endTitle.style.color = '#FFA500';
             } else {
                 const isWinner = (winner === 'citizens' && (playerRole === 'citizen' || playerRole === 'detective' || playerRole === 'doctor')) ||
-                               (winner === 'mafia' && playerRole === 'mafia');
+                    (winner === 'mafia' && playerRole === 'mafia');
                 endTitle.textContent = isWinner ? 'Victory!' : 'Defeat!';
                 endTitle.style.color = isWinner ? '#D32F2F' : '#FFFFFF';
             }
@@ -814,7 +814,122 @@ class UIManager {
         // Check room status
         socketClient.checkRoom(roomCode);
     }
+
+    /**
+     * Show voting dialog when day phase starts
+     */
+    showVotingDialog(players) {
+        const modal = document.getElementById('vote-dialog-modal');
+        const playersContainer = document.getElementById('vote-dialog-players');
+        const confirmBtn = document.getElementById('vote-dialog-confirm-btn');
+        const skipBtn = document.getElementById('vote-dialog-skip-btn');
+        const status = document.getElementById('vote-dialog-status');
+        const dayActions = document.getElementById('day-actions');
+
+        if (!modal || !playersContainer) return;
+
+        // Clear previous selection
+        gameState.selectedVoteTarget = null;
+        confirmBtn.disabled = true;
+
+        // Clear and render players
+        playersContainer.innerHTML = '';
+        const aliveEnemies = players.filter(p => p.isAlive && p.id !== gameState.playerId);
+        
+        if (aliveEnemies.length === 0) {
+            // No other alive players to vote for
+            playersContainer.innerHTML = '<p style="text-align: center; color: rgba(255,255,255,0.5);">No other players to vote for</p>';
+            confirmBtn.disabled = true;
+            skipBtn.disabled = false;
+        } else {
+            aliveEnemies.forEach(player => {
+                const btn = document.createElement('button');
+                btn.className = 'vote-dialog-player';
+                btn.dataset.playerId = player.id;
+                btn.innerHTML = `
+                    <span>${player.name}</span>
+                    <span class="vote-dialog-player-check" style="display: none;">✓</span>
+                `;
+                btn.addEventListener('click', () => {
+                    // Unselect previous
+                    playersContainer.querySelectorAll('.vote-dialog-player').forEach(b => {
+                        b.classList.remove('selected');
+                        b.querySelector('.vote-dialog-player-check').style.display = 'none';
+                    });
+                    // Select this one
+                    btn.classList.add('selected');
+                    btn.querySelector('.vote-dialog-player-check').style.display = 'inline';
+                    gameState.selectedVoteTarget = player.id;
+                    confirmBtn.disabled = false;
+                });
+                playersContainer.appendChild(btn);
+            });
+        }
+
+        // Hide status initially
+        if (status) {
+            status.classList.add('hidden');
+            status.textContent = '';
+        }
+
+        // Enable skip button always
+        skipBtn.disabled = false;
+
+        // Hide old day-actions UI (legacy voting interface)
+        if (dayActions) {
+            dayActions.classList.add('hidden');
+        }
+
+        // Show modal
+        modal.classList.remove('hidden');
+    }
+
+    /**
+     * Hide voting dialog
+     */
+    hideVotingDialog() {
+        const modal = document.getElementById('vote-dialog-modal');
+        const dayActions = document.getElementById('day-actions');
+        
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+        
+        // Restore day-actions if needed (in case voting continues or UI needs it)
+        if (dayActions && gameState.phase === 'day') {
+            dayActions.classList.remove('hidden');
+        }
+    }
+
+    /**
+     * Show vote submitted status
+     */
+    showVoteSubmittedStatus(playersRemaining) {
+        const status = document.getElementById('vote-dialog-status');
+        if (!status) return;
+        
+        status.classList.remove('hidden');
+        status.classList.add('success');
+        status.classList.remove('waiting');
+        status.textContent = playersRemaining > 0
+            ? `✓ Vote submitted! Waiting for ${playersRemaining} more player(s)...`
+            : `✓ All players voted! Phase ending...`;
+    }
+
+    /**
+     * Show players waiting message
+     */
+    showVotingWaitingStatus(playersRemaining) {
+        const status = document.getElementById('vote-dialog-status');
+        if (!status) return;
+        
+        status.classList.remove('hidden');
+        status.classList.remove('success');
+        status.classList.add('waiting');
+        status.textContent = `⏳ Waiting for ${playersRemaining} more player(s) to vote...`;
+    }
 }
 
 // Export singleton instance
 const uiManager = new UIManager();
+

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,6 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 </head>
+
 <body>
     <!-- Online Players Header -->
     <header class="online-header">
@@ -20,14 +22,14 @@
             <span id="room-online-count" class="online-count">0</span>
         </div>
     </header>
-    
+
     <!-- Landing/Join Screen -->
     <div id="landing-screen" class="screen active">
         <div class="container">
             <div class="card">
                 <h1 class="title">MAFIA</h1>
                 <p class="subtitle">The Game of Deception</p>
-                
+
                 <!-- Tabs for Create/Join -->
                 <div class="room-tabs">
                     <button id="create-tab" class="room-tab active">Create Room</button>
@@ -37,7 +39,8 @@
                 <!-- Create Room Section -->
                 <div id="create-room-section" class="room-section active">
                     <div class="form-group">
-                        <input type="text" id="player-name-create" placeholder="Enter Your Name" maxlength="20" class="input-field">
+                        <input type="text" id="player-name-create" placeholder="Enter Your Name" maxlength="20"
+                            class="input-field">
                     </div>
                     <button id="create-room-btn" class="btn btn-primary">Create New Room</button>
                     <div id="create-room-status" class="room-status"></div>
@@ -46,14 +49,16 @@
                 <!-- Join Room Section -->
                 <div id="join-room-section" class="room-section">
                     <div class="form-group">
-                        <input type="text" id="room-code-input" placeholder="Enter Room Code (6 characters)" maxlength="6" class="input-field" style="text-transform: uppercase;">
+                        <input type="text" id="room-code-input" placeholder="Enter Room Code (6 characters)"
+                            maxlength="6" class="input-field" style="text-transform: uppercase;">
                         <button id="check-room-btn" class="btn-icon-small" title="Check Room Status">
                             <span class="material-icons">search</span>
                         </button>
                     </div>
                     <div id="room-status-display" class="room-status"></div>
                     <div class="form-group">
-                        <input type="text" id="player-name-input" placeholder="Enter Your Name" maxlength="20" class="input-field">
+                        <input type="text" id="player-name-input" placeholder="Enter Your Name" maxlength="20"
+                            class="input-field">
                     </div>
                     <button id="join-btn" class="btn btn-primary">Join Game</button>
                 </div>
@@ -75,7 +80,7 @@
         <div class="container">
             <div class="card">
                 <h2 class="card-title">Waiting Room</h2>
-                
+
                 <div class="room-code-display">
                     <span class="label">Room Code:</span>
                     <span id="room-code-display" class="code">----</span>
@@ -83,9 +88,10 @@
                         <span class="material-icons">content_copy</span>
                     </button>
                 </div>
-                
+
                 <div class="players-list">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                         <h3 style="margin: 0;">Players (<span id="player-count">0</span>)</h3>
                         <button id="refresh-players-btn" class="btn-icon-small" title="Refresh Players List">
                             <span class="material-icons">refresh</span>
@@ -93,15 +99,16 @@
                     </div>
                     <ul id="players-list"></ul>
                 </div>
-                
+
                 <div id="start-game-section" class="hidden">
                     <button id="start-game-btn" class="btn btn-primary">Start Game</button>
                 </div>
-                
+
                 <div style="margin-top: 20px;">
-                    <button id="leave-room-btn" class="btn btn-secondary" title="Leave room and return to main page">Leave Room</button>
+                    <button id="leave-room-btn" class="btn btn-secondary"
+                        title="Leave room and return to main page">Leave Room</button>
                 </div>
-                
+
                 <p class="waiting-message">Waiting for players to join...</p>
             </div>
         </div>
@@ -138,8 +145,11 @@
             <div id="action-panel" class="action-panel">
                 <div id="night-actions" class="hidden">
                     <h3>Night Actions</h3>
-                    <p id="night-no-actions-msg" class="hidden" style="color: rgba(255,200,100,0.95); margin: 10px 0;">Night 2 — No special actions tonight. Officer, Doctor, and Mafia cannot act.</p>
-                    <p id="night-action-used-msg" class="hidden" style="color: rgba(150,255,150,0.9); margin: 10px 0;">You have used your action this night. Kill / Investigate / Protect can only be used once per night.</p>
+                    <p id="night-no-actions-msg" class="hidden" style="color: rgba(255,200,100,0.95); margin: 10px 0;">
+                        Night 2 — No special actions tonight. Officer, Doctor, and Mafia cannot act.</p>
+                    <p id="night-action-used-msg" class="hidden" style="color: rgba(150,255,150,0.9); margin: 10px 0;">
+                        You have used your action this night. Kill / Investigate / Protect can only be used once per
+                        night.</p>
                     <div id="detective-action" class="action-section hidden">
                         <p>Choose a player to investigate:</p>
                         <div id="detective-targets" class="target-list"></div>
@@ -149,19 +159,23 @@
                         <div id="doctor-targets" class="target-list"></div>
                     </div>
                     <div id="mafia-action" class="action-section hidden">
-                        <p>Choose a player to eliminate. Use Mafia Chat to agree on one target — kill only happens if all mafia vote the same.</p>
+                        <p>Choose a player to eliminate. Use Mafia Chat to agree on one target — kill only happens if
+                            all mafia vote the same.</p>
                         <div id="mafia-kill-votes" class="mafia-votes-list hidden"></div>
                         <div id="mafia-targets" class="target-list"></div>
                     </div>
-                    <button id="finish-night-btn" type="button" class="btn btn-primary finish-night-btn hidden">Finish Night</button>
+                    <button id="finish-night-btn" type="button" class="btn btn-primary finish-night-btn hidden">Finish
+                        Night</button>
                 </div>
 
                 <div id="day-actions" class="hidden">
                     <h3>Vote to Eliminate</h3>
-                    <p style="color: rgba(255,255,255,0.7); font-size: 14px; margin-bottom: 10px;">Choose a player to vote out (or Skip), then click Submit Vote. When everyone has voted, the phase ends.</p>
+                    <p style="color: rgba(255,255,255,0.7); font-size: 14px; margin-bottom: 10px;">Choose a player to
+                        vote out (or Skip), then click Submit Vote. When everyone has voted, the phase ends.</p>
                     <div id="vote-breakdown" class="vote-breakdown-list hidden"></div>
                     <div id="vote-targets" class="target-list"></div>
-                    <button id="submit-vote-btn" type="button" class="btn btn-primary submit-vote-btn">Submit Vote</button>
+                    <button id="submit-vote-btn" type="button" class="btn btn-primary submit-vote-btn">Submit
+                        Vote</button>
                 </div>
             </div>
 
@@ -171,7 +185,7 @@
                     <button id="public-chat-tab" class="chat-tab active">Public Chat</button>
                     <button id="mafia-chat-tab" class="chat-tab hidden">Mafia Chat</button>
                 </div>
-                
+
                 <div id="public-chat" class="chat-window active">
                     <div id="public-messages" class="messages"></div>
                     <div class="chat-input-container">
@@ -201,6 +215,23 @@
                     <span class="material-icons">close</span>
                 </button>
                 <div id="role-card-content"></div>
+            </div>
+        </div>
+
+        <!-- Voting Dialog Modal -->
+        <div id="vote-dialog-modal" class="modal hidden">
+            <div class="modal-content vote-dialog">
+                <h2 class="vote-dialog-title">Vote to Eliminate</h2>
+                <p class="vote-dialog-subtitle">Select a player or skip vote</p>
+
+                <div id="vote-dialog-players" class="vote-dialog-players"></div>
+
+                <div class="vote-dialog-actions">
+                    <button id="vote-dialog-skip-btn" class="btn btn-secondary">Skip Vote</button>
+                    <button id="vote-dialog-confirm-btn" class="btn btn-primary" disabled>Confirm Vote</button>
+                </div>
+
+                <div id="vote-dialog-status" class="vote-dialog-status hidden"></div>
             </div>
         </div>
     </div>
@@ -240,4 +271,5 @@
     <script src="/js/ui.js"></script>
     <script src="/js/app.js"></script>
 </body>
+
 </html>

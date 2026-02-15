@@ -104,6 +104,17 @@ class App {
             submitVoteBtn.addEventListener('click', () => this.handleSubmitVote());
         }
 
+        // Voting dialog
+        const voteDialogConfirmBtn = document.getElementById('vote-dialog-confirm-btn');
+        if (voteDialogConfirmBtn) {
+            voteDialogConfirmBtn.addEventListener('click', () => this.handleVoteDialogConfirm());
+        }
+
+        const voteDialogSkipBtn = document.getElementById('vote-dialog-skip-btn');
+        if (voteDialogSkipBtn) {
+            voteDialogSkipBtn.addEventListener('click', () => this.handleVoteDialogSkip());
+        }
+
         const finishNightBtn = document.getElementById('finish-night-btn');
         if (finishNightBtn) {
             finishNightBtn.addEventListener('click', () => this.handleFinishNight());
@@ -196,6 +207,12 @@ class App {
                 return;
             }
             
+            // Ensure uiManager is ready before using it
+            if (typeof uiManager === 'undefined' || !uiManager) {
+                console.error('❌ uiManager not available in room-joined handler');
+                return;
+            }
+            
             this.isCreator = data.isCreator || false;
             
             // CRITICAL: Only navigate to lobby if we're still on landing screen
@@ -254,6 +271,13 @@ class App {
         socketClient.on('player-joined', (data) => {
             console.log('📥 Player joined event:', data);
             console.log('📥 Full player-joined data:', JSON.stringify(data, null, 2));
+            
+            // Ensure uiManager is available
+            if (typeof uiManager === 'undefined') {
+                console.warn('⚠️ uiManager not ready in player-joined handler, skipping update');
+                return;
+            }
+            
             if (data.players && Array.isArray(data.players)) {
                 console.log('👥 Updating players list:', data.players.length, 'players');
                 console.log('👥 Players array:', data.players);
@@ -276,12 +300,20 @@ class App {
 
         // Role assigned
         socketClient.on('role-assigned', (data) => {
+            if (typeof uiManager === 'undefined') {
+                console.warn('⚠️ uiManager not ready in role-assigned handler');
+                return;
+            }
             gameState.setRole(data.role, data.roleImage, data.mafiaTeammateIds);
             uiManager.showRoleCard(data.role, data.roleImage);
         });
 
         // Game started
         socketClient.on('game-started', (data) => {
+            if (typeof uiManager === 'undefined') {
+                console.warn('⚠️ uiManager not ready in game-started handler');
+                return;
+            }
             gameState.updatePlayers(data.players);
             if (data.investigationResults) gameState.setInvestigationResults(data.investigationResults);
             uiManager.showScreen('game');
@@ -290,6 +322,7 @@ class App {
 
         // Phase updates (include nightNumber for Night 2 = no actions)
         socketClient.on('phase-update', (data) => {
+            if (typeof uiManager === 'undefined') return;
             gameState.updatePhase(data.phase, data.timeRemaining, data.nightNumber);
             uiManager.updatePhaseIndicator(data.phase, data.timeRemaining, data.nightNumber);
             uiManager.updateActionPanel();
@@ -299,6 +332,10 @@ class App {
 
         // Night phase
         socketClient.on('night-phase', (data) => {
+            if (typeof uiManager === 'undefined') {
+                console.warn('⚠️ uiManager not ready in night-phase handler');
+                return;
+            }
             gameState.updatePhase('night', data.timeRemaining);
             if (data.players) {
                 gameState.updatePlayers(data.players);
@@ -306,6 +343,9 @@ class App {
             uiManager.updatePhaseIndicator('night', data.timeRemaining);
             uiManager.updateActionPanel();
             uiManager.renderPlayerCards(gameState.players, gameState.playerId);
+            
+            // Hide voting dialog if it's open
+            uiManager.hideVotingDialog();
             
             // Show Mafia chat if player is Mafia
             if (gameState.role === 'mafia') {
@@ -315,6 +355,10 @@ class App {
 
         // Day phase
         socketClient.on('day-phase', (data) => {
+            if (typeof uiManager === 'undefined') {
+                console.warn('⚠️ uiManager not ready in day-phase handler');
+                return;
+            }
             gameState.updatePhase('day', data.timeRemaining);
             if (data.players) {
                 gameState.updatePlayers(data.players);
@@ -330,10 +374,18 @@ class App {
             
             // Hide Mafia chat
             uiManager.toggleMafiaChat(false);
+
+            // Show voting dialog if player is alive and can vote
+            if (gameState.isAlive() && gameState.canPerformAction()) {
+                setTimeout(() => {
+                    uiManager.showVotingDialog(gameState.players);
+                }, 500); // Slight delay for UI update
+            }
         });
 
         // Night action confirmed — disable further actions for this night (mafia can still change kill)
         socketClient.on('night-action-confirmed', (data) => {
+            if (typeof uiManager === 'undefined') return;
             console.log('Night action confirmed:', data);
             if (gameState.role !== 'mafia') gameState.markActionSubmitted();
             uiManager.updateActionPanel();
@@ -341,12 +393,14 @@ class App {
 
         // All roles have acted — show Finish Night button (don't wait for timer)
         socketClient.on('night-ready', () => {
+            if (typeof uiManager === 'undefined') return;
             gameState.nightCanFinish = true;
             uiManager.updateActionPanel();
         });
 
         // Detective result — save for card borders and show alert
         socketClient.on('detective-result', (data) => {
+            if (typeof uiManager === 'undefined') return;
             if (data.targetId != null) {
                 gameState.setInvestigationResults({ ...gameState.investigationResults, [data.targetId]: data.isMafia });
                 uiManager.updateActionPanel();
@@ -358,33 +412,52 @@ class App {
 
         // Vote cast (all players see who voted for whom)
         socketClient.on('vote-cast', (data) => {
+            if (typeof uiManager === 'undefined') return;
             uiManager.updateVotes(data.votes);
             if (data.voteBreakdown && Array.isArray(data.voteBreakdown)) {
                 gameState.voteBreakdown = data.voteBreakdown;
                 uiManager.renderVoteBreakdown(data.voteBreakdown);
             }
+            
+            // Track voting progress
+            if (data.playersVoted !== undefined) {
+                const alivePlayers = gameState.players.filter(p => p.isAlive).length;
+                const remaining = alivePlayers - data.playersVoted;
+                if (remaining > 0 && gameState.phase === 'day') {
+                    console.log(`📊 Voting progress: ${data.playersVoted}/${alivePlayers} players voted`);
+                    uiManager.showVotingWaitingStatus(remaining);
+                } else if (remaining <= 0) {
+                    console.log('✅ All players have voted!');
+                    uiManager.hideVotingDialog();
+                }
+            }
+            
             uiManager.updateActionPanel();
             uiManager.renderPlayerCards(gameState.players, gameState.playerId);
         });
 
         // Mafia kill votes (mafia only — see each other's kill votes during night)
         socketClient.on('mafia-kill-votes', (data) => {
+            if (typeof uiManager === 'undefined') return;
             gameState.mafiaKillVotes = data.votes || [];
             uiManager.renderMafiaKillVotes(gameState.mafiaKillVotes);
         });
 
         // Chat message
         socketClient.on('chat-message', (data) => {
+            if (typeof uiManager === 'undefined') return;
             uiManager.addChatMessage(data.playerId, data.playerName, data.message, data.chatType);
         });
 
         // Moderator message
         socketClient.on('moderator-message', (data) => {
+            if (typeof uiManager === 'undefined') return;
             uiManager.showModeratorMessage(data.message);
         });
 
         // Game ended
         socketClient.on('game-ended', (data) => {
+            if (typeof uiManager === 'undefined') return;
             uiManager.showGameEnd(data.winner, data.reason, gameState.role);
         });
 
@@ -392,6 +465,12 @@ class App {
         socketClient.on('error', (error) => {
             console.error('❌ Socket error:', error);
             const errorMessage = error.message || 'An error occurred';
+            
+            // If uiManager is not ready, just log and return
+            if (typeof uiManager === 'undefined') {
+                console.warn('⚠️ uiManager not ready in error handler');
+                return;
+            }
             
             // If we're on landing screen, show error in status display
             const statusEl = document.getElementById('room-status-display');
@@ -458,7 +537,9 @@ class App {
 
         // Rooms list
         socketClient.on('rooms-list', (data) => {
-            uiManager.displayRoomsList(data.rooms);
+            if (typeof uiManager !== 'undefined' && uiManager) {
+                uiManager.displayRoomsList(data.rooms);
+            }
         });
 
         // Room no longer exists (deleted or closed) — notify and return to main page (only if we're in that room)
@@ -1030,6 +1111,126 @@ class App {
             ? gameState.selectedTarget
             : null;
         uiManager.handleVote(targetId);
+    }
+
+    /**
+     * Handle vote dialog confirm — submit the selected vote
+     */
+    handleVoteDialogConfirm() {
+        if (gameState.phase !== 'day') return;
+        if (!gameState.canPerformAction()) return;
+        if (!gameState.roomCode) {
+            console.warn('Vote Dialog Confirm: no room code');
+            return;
+        }
+
+        // Get target from dialog selection
+        const targetId = gameState.selectedVoteTarget || null;
+        
+        console.log(`📤 Submitting vote for player:`, targetId);
+        
+        // Send vote to server
+        socketClient.sendVote(gameState.roomCode, targetId);
+        
+        // Mark as submitted
+        gameState.markActionSubmitted();
+        
+        // Hide dialog
+        uiManager.hideVotingDialog();
+        
+        // Show waiting message
+        const alivePlayers = gameState.players.filter(p => p.isAlive).length;
+        const aliveVoted = Object.values(gameState.dayHasVoted || {}).filter(v => v).length;
+        const remaining = alivePlayers - aliveVoted - 1;
+        
+        if (remaining > 0) {
+            uiManager.showVotingWaitingStatus(remaining);
+        }
+    }
+
+    /**
+     * Handle vote dialog skip — skip voting
+     */
+    handleVoteDialogSkip() {
+        if (gameState.phase !== 'day') return;
+        if (!gameState.canPerformAction()) return;
+        if (!gameState.roomCode) {
+            console.warn('Vote Dialog Skip: no room code');
+            return;
+        }
+
+        console.log(`📤 Skipping vote`);
+        
+        // Send null (skip vote) to server
+        socketClient.sendVote(gameState.roomCode, null);
+        
+        // Mark as submitted
+        gameState.markActionSubmitted();
+        
+        // Hide dialog
+        uiManager.hideVotingDialog();
+        
+        // Show waiting message
+        const alivePlayers = gameState.players.filter(p => p.isAlive).length;
+        const aliveVoted = Object.values(gameState.dayHasVoted || {}).filter(v => v).length;
+        const remaining = alivePlayers - aliveVoted - 1;
+        
+        if (remaining > 0) {
+            uiManager.showVotingWaitingStatus(remaining);
+        }
+    }
+
+    /**
+     * Handle voting dialog confirm button
+     */
+    handleVoteDialogConfirm() {
+        if (gameState.phase !== 'day') return;
+        if (!gameState.canPerformAction()) return;
+        if (!gameState.roomCode) {
+            console.warn('Vote dialog confirm: no room code');
+            return;
+        }
+
+        const targetId = gameState.selectedVoteTarget !== undefined && gameState.selectedVoteTarget !== null
+            ? gameState.selectedVoteTarget
+            : null;
+
+        if (!targetId) {
+            alert('Please select a player to vote for');
+            return;
+        }
+
+        // Send vote to server
+        socketClient.sendVote(gameState.roomCode, targetId);
+        gameState.markActionSubmitted();
+
+        // Get count of players still needing to vote
+        const alive = gameState.players.filter(p => p.isAlive && p.id !== gameState.playerId);
+        uiManager.showVoteSubmittedStatus(alive.length);
+        
+        console.log(`✅ Vote submitted for: ${gameState.players.find(p => p.id === targetId)?.name || 'Unknown'}`);
+    }
+
+    /**
+     * Handle voting dialog skip button
+     */
+    handleVoteDialogSkip() {
+        if (gameState.phase !== 'day') return;
+        if (!gameState.canPerformAction()) return;
+        if (!gameState.roomCode) {
+            console.warn('Vote dialog skip: no room code');
+            return;
+        }
+
+        // Send skip vote (null) to server
+        socketClient.sendVote(gameState.roomCode, null);
+        gameState.markActionSubmitted();
+
+        // Get count of players still needing to vote
+        const alive = gameState.players.filter(p => p.isAlive && p.id !== gameState.playerId);
+        uiManager.showVoteSubmittedStatus(alive.length);
+        
+        console.log(`✅ Vote skipped`);
     }
 
     /**

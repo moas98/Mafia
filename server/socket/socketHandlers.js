@@ -662,6 +662,10 @@ class SocketHandlers {
     const success = gameState.recordVote(socketId, targetId);
     
     if (success) {
+      // Count how many alive players have voted
+      const alivePlayers = gameState.players.filter(p => p.isAlive).length;
+      const playersVoted = gameState.dayHasVoted ? Object.keys(gameState.dayHasVoted).filter(pId => gameState.dayHasVoted[pId]).length : 0;
+      
       // Broadcast vote update (all players see who voted for whom)
       this.broadcastToRoom(roomCode, 'vote-cast', {
         voterId: socketId,
@@ -670,6 +674,8 @@ class SocketHandlers {
           id: p.id,
           votes: p.votes
         })),
+        playersVoted: playersVoted,
+        alivePlayers: alivePlayers,
         voteBreakdown: gameState.getDayVoteBreakdown()
       });
       // If all alive players have voted, end day phase early

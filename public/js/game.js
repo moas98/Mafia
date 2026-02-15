@@ -14,8 +14,10 @@ class GameState {
         this.round = 0;
         this.nightNumber = 0; // 1 = first night, 2 = no actions night, 3+, etc.
         this.selectedTarget = null;
+        this.selectedVoteTarget = null; // For voting dialog
         this.nightActionSubmitted = false;
         this.voteSubmitted = false;
+        this.dayHasVoted = {}; // Track who has voted: { playerId: true/false }
         this.investigationResults = {}; // { [playerId]: true (mafia) | false (not mafia) } — for card borders
         this.mafiaTeammateIds = []; // other mafia player ids (so we don't show Kill on them)
         this.mafiaKillVotes = []; // [{ voterName, targetName }] — visible to mafia during night
@@ -52,6 +54,7 @@ class GameState {
         this.timeRemaining = timeRemaining;
         if (nightNumber !== undefined && nightNumber !== null) this.nightNumber = nightNumber;
         this.selectedTarget = null;
+        this.selectedVoteTarget = null;
         
         // Reset action flags on phase change
         if (phase === 'night') {

@@ -1016,6 +1016,114 @@ body {
     letter-spacing: 2px;
 }
 
+/* Voting Dialog */
+.vote-dialog {
+    max-width: 500px;
+    text-align: center;
+}
+
+.vote-dialog-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--color-red);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.vote-dialog-subtitle {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.7);
+    margin-bottom: 20px;
+}
+
+.vote-dialog-players {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin-bottom: 20px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.vote-dialog-player {
+    background: var(--color-gray-medium);
+    border: 2px solid var(--color-gray-light);
+    border-radius: 6px;
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 16px;
+}
+
+.vote-dialog-player:hover {
+    border-color: var(--color-red);
+    background: var(--color-gray-light);
+}
+
+.vote-dialog-player.selected {
+    background: var(--color-red);
+    border-color: var(--color-red);
+    color: var(--color-white);
+    font-weight: 600;
+}
+
+.vote-dialog-player-check {
+    font-size: 18px;
+    margin-left: 10px;
+}
+
+.vote-dialog-actions {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.vote-dialog-actions .btn {
+    flex: 1;
+    padding: 12px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.vote-dialog-actions .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.vote-dialog-status {
+    font-size: 14px;
+    padding: 12px;
+    background: var(--color-gray-medium);
+    border-radius: 4px;
+    margin-top: 10px;
+    animation: slideIn 0.3s ease-out;
+}
+
+.vote-dialog-status.success {
+    color: #4CAF50;
+    border: 1px solid #4CAF50;
+}
+
+.vote-dialog-status.waiting {
+    color: var(--color-red);
+    border: 1px solid var(--color-red);
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 /* End Screen */
 .end-message {
     font-size: 20px;
