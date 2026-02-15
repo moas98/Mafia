@@ -215,6 +215,9 @@ class SocketHandlers {
       case 'kick-player':
         this.handleKickPlayer(ws, socketId, eventData);
         break;
+      case 'finish-night':
+        this.handleFinishNight(ws, socketId, eventData);
+        break;
       default:
         console.warn(`⚠️ [${socketId}] Unknown event: ${event}`);
     }
@@ -252,6 +255,28 @@ class SocketHandlers {
       socketsInRoom.forEach((ws) => {
         if (ws.readyState === 1) {
           this.send(ws, event, data);
+        }
+      });
+    }
+  }
+
+  /**
+   * Broadcast to mafia only in room (for kill votes, etc.)
+   */
+  broadcastToMafiaInRoom(roomCode, event, data) {
+    const gameState = this.gameManager.getRoom(roomCode);
+    if (!gameState) return;
+    const mafiaIds = new Set(
+      gameState.players.filter(p => p.role === 'mafia' && p.isAlive).map(p => p.id)
+    );
+    const socketsInRoom = this.roomSockets.get(roomCode);
+    if (socketsInRoom) {
+      socketsInRoom.forEach((ws) => {
+        if (ws.readyState === 1) {
+          const socketId = this.onlinePlayers.get(ws);
+          if (socketId && mafiaIds.has(socketId)) {
+            this.send(ws, event, data);
+          }
         }
       });
     }
@@ -537,6 +562,7 @@ class SocketHandlers {
       })),
       investigationResults: gameState.investigationResults || {}
     });
+    this.broadcastToMafiaInRoom(roomCode, 'mafia-kill-votes', { votes: [] });
 
     this.broadcastModeratorMessage(roomCode, 'Night falls. The Mafia awakens...');
     this.startPhaseTimer(roomCode);
@@ -567,7 +593,16 @@ class SocketHandlers {
     if (success) {
       // Send confirmation (Officer = 1 investigate per night, Doctor = 1 protect per night)
       this.send(ws, 'night-action-confirmed', { action, target });
-      
+      // Mafia: broadcast current kill votes to all mafia so they can see each other's votes
+      if (player.role === 'mafia') {
+        this.broadcastToMafiaInRoom(roomCode, 'mafia-kill-votes', {
+          votes: gameState.getMafiaKillVotes()
+        });
+      }
+      // If all roles have acted, allow ending night early
+      if (gameState.allNightActionsSubmitted()) {
+        this.broadcastToRoom(roomCode, 'night-ready', {});
+      }
       // For Detective/Officer, send result immediately and persist on server for card borders
       if (player.role === 'detective' && target) {
         const targetPlayer = gameState.players.find(p => p.id === target);
@@ -588,6 +623,31 @@ class SocketHandlers {
   }
 
   /**
+   * Handle finish night early (when all roles have acted)
+   */
+  handleFinishNight(ws, socketId, data) {
+    const { roomCode } = data;
+    const gameState = this.gameManager.getRoom(roomCode);
+    if (!gameState) {
+      this.sendRoomDeleted(ws, roomCode);
+      return;
+    }
+    if (gameState.phase !== 'night') {
+      this.send(ws, 'error', { message: 'Not in night phase.' });
+      return;
+    }
+    if (!gameState.allNightActionsSubmitted()) {
+      this.send(ws, 'error', { message: 'Not all roles have submitted their action yet.' });
+      return;
+    }
+    if (this.phaseTimers.has(roomCode)) {
+      clearInterval(this.phaseTimers.get(roomCode));
+      this.phaseTimers.delete(roomCode);
+    }
+    this.processNightPhase(roomCode);
+  }
+
+  /**
    * Handle day vote
    */
   handleVote(ws, socketId, data) {
@@ -602,14 +662,15 @@ class SocketHandlers {
     const success = gameState.recordVote(socketId, targetId);
     
     if (success) {
-      // Broadcast vote update
+      // Broadcast vote update (all players see who voted for whom)
       this.broadcastToRoom(roomCode, 'vote-cast', {
         voterId: socketId,
         targetId: targetId,
         votes: gameState.players.map(p => ({
           id: p.id,
           votes: p.votes
-        }))
+        })),
+        voteBreakdown: gameState.getDayVoteBreakdown()
       });
       // If all alive players have voted, end day phase early
       if (gameState.allAliveHaveVoted()) {
@@ -863,6 +924,16 @@ class SocketHandlers {
       nightNumber: gameState.nightNumber || null,
       investigationResults: gameState.investigationResults || {}
     };
+    if (gameState.phase === 'day') {
+      roomStateData.voteBreakdown = gameState.getDayVoteBreakdown();
+      roomStateData.players = gameState.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        isAlive: p.isAlive !== undefined ? p.isAlive : true,
+        votes: p.votes || 0,
+        disconnected: p.disconnected === true
+      }));
+    }
     
     console.log(`📤 [${socketId}] Emitting room-state event with data:`, JSON.stringify(roomStateData, null, 2));
     this.send(ws, 'room-state', roomStateData);
@@ -1056,7 +1127,8 @@ class SocketHandlers {
         votes: p.votes || 0,
         disconnected: p.disconnected === true
       })),
-      investigationResults: gameState.investigationResults || {}
+      investigationResults: gameState.investigationResults || {},
+      voteBreakdown: gameState.getDayVoteBreakdown()
     });
     this.startPhaseTimer(roomCode);
   }
@@ -1076,7 +1148,7 @@ class SocketHandlers {
         `${votedOut.name} was voted out by the town.`
       );
     } else {
-      this.broadcastModeratorMessage(roomCode, 'The town could not reach a majority decision.');
+      this.broadcastModeratorMessage(roomCode, "It's a draw. No one was eliminated.");
     }
 
     // Check win condition (expects players array)
@@ -1089,6 +1161,19 @@ class SocketHandlers {
     // Start next night phase
     gameState.transitionToNight();
     this.broadcastModeratorMessage(roomCode, 'Night falls. The Mafia awakens...');
+    const timing = require('../config').getTiming();
+    this.broadcastToRoom(roomCode, 'night-phase', {
+      players: gameState.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        isAlive: p.isAlive !== undefined ? p.isAlive : true,
+        disconnected: p.disconnected === true
+      })),
+      timeRemaining: timing.nightRoundTime,
+      nightNumber: gameState.nightNumber || null
+    });
+    this.broadcastToMafiaInRoom(roomCode, 'mafia-kill-votes', { votes: [] });
+    if (gameState.nightNumber === 2) this.broadcastToRoom(roomCode, 'night-ready', {});
     this.startPhaseTimer(roomCode);
   }
 }

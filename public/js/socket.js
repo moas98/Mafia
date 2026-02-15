@@ -277,6 +277,13 @@ class SocketClient {
     }
 
     /**
+     * Finish night early (when all roles have acted)
+     */
+    sendFinishNight(roomCode) {
+        this.send('finish-night', { roomCode });
+    }
+
+    /**
      * Request current room state
      */
     requestRoomState(roomCode) {

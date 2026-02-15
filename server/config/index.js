@@ -8,7 +8,8 @@ const path = require('path');
 const DEFAULTS = {
   timing: {
     nightRoundTime: 60,
-    dayRoundTime: 120
+    dayRoundTime: 120,
+    votingTime: 120
   }
 };
 
@@ -20,10 +21,12 @@ function loadSettings() {
   try {
     const raw = fs.readFileSync(filePath, 'utf8');
     const parsed = JSON.parse(raw);
+    const voting = Number(parsed.timing?.votingTime) || Number(parsed.timing?.dayRoundTime) || DEFAULTS.timing.votingTime;
     cached = {
       timing: {
         nightRoundTime: Number(parsed.timing?.nightRoundTime) || DEFAULTS.timing.nightRoundTime,
-        dayRoundTime: Number(parsed.timing?.dayRoundTime) || DEFAULTS.timing.dayRoundTime
+        dayRoundTime: voting,
+        votingTime: voting
       }
     };
     return cached;

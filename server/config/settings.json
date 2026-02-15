@@ -1,6 +1,7 @@
 {
   "timing": {
-    "nightRoundTime": 15,
-    "dayRoundTime": 15
+    "nightRoundTime": 30,
+    "dayRoundTime": 30,
+    "votingTime": 30
   }
 }

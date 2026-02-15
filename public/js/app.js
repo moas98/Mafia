@@ -104,6 +104,11 @@ class App {
             submitVoteBtn.addEventListener('click', () => this.handleSubmitVote());
         }
 
+        const finishNightBtn = document.getElementById('finish-night-btn');
+        if (finishNightBtn) {
+            finishNightBtn.addEventListener('click', () => this.handleFinishNight());
+        }
+
         // Game screen - Chat
         const publicChatInput = document.getElementById('public-chat-input');
         const publicSendBtn = document.getElementById('public-send-btn');
@@ -271,7 +276,7 @@ class App {
 
         // Role assigned
         socketClient.on('role-assigned', (data) => {
-            gameState.setRole(data.role, data.roleImage);
+            gameState.setRole(data.role, data.roleImage, data.mafiaTeammateIds);
             uiManager.showRoleCard(data.role, data.roleImage);
         });
 
@@ -317,18 +322,26 @@ class App {
             if (data.investigationResults) {
                 gameState.setInvestigationResults(data.investigationResults);
             }
+            gameState.voteBreakdown = data.voteBreakdown || [];
             uiManager.updatePhaseIndicator('day', data.timeRemaining);
             uiManager.updateActionPanel();
             uiManager.renderPlayerCards(gameState.players, gameState.playerId);
+            uiManager.renderVoteBreakdown(gameState.voteBreakdown);
             
             // Hide Mafia chat
             uiManager.toggleMafiaChat(false);
         });
 
-        // Night action confirmed — disable further actions for this night (one kill/investigate/protect per night)
+        // Night action confirmed — disable further actions for this night (mafia can still change kill)
         socketClient.on('night-action-confirmed', (data) => {
             console.log('Night action confirmed:', data);
-            gameState.markActionSubmitted();
+            if (gameState.role !== 'mafia') gameState.markActionSubmitted();
+            uiManager.updateActionPanel();
+        });
+
+        // All roles have acted — show Finish Night button (don't wait for timer)
+        socketClient.on('night-ready', () => {
+            gameState.nightCanFinish = true;
             uiManager.updateActionPanel();
         });
 
@@ -343,9 +356,21 @@ class App {
             alert(`Investigation Result: ${data.targetName} ${result}`);
         });
 
-        // Vote cast
+        // Vote cast (all players see who voted for whom)
         socketClient.on('vote-cast', (data) => {
             uiManager.updateVotes(data.votes);
+            if (data.voteBreakdown && Array.isArray(data.voteBreakdown)) {
+                gameState.voteBreakdown = data.voteBreakdown;
+                uiManager.renderVoteBreakdown(data.voteBreakdown);
+            }
+            uiManager.updateActionPanel();
+            uiManager.renderPlayerCards(gameState.players, gameState.playerId);
+        });
+
+        // Mafia kill votes (mafia only — see each other's kill votes during night)
+        socketClient.on('mafia-kill-votes', (data) => {
+            gameState.mafiaKillVotes = data.votes || [];
+            uiManager.renderMafiaKillVotes(gameState.mafiaKillVotes);
         });
 
         // Chat message
@@ -489,9 +514,11 @@ class App {
                     gameState.updatePhase(data.phase, data.timeRemaining != null ? data.timeRemaining : 0, data.nightNumber);
                     gameState.updatePlayers(data.players);
                     if (data.investigationResults) gameState.setInvestigationResults(data.investigationResults);
+                    if (data.phase === 'day' && data.voteBreakdown) gameState.voteBreakdown = data.voteBreakdown;
                     uiManager.showScreen('game');
                     uiManager.renderPlayerCards(data.players, gameState.playerId);
                     uiManager.updatePhaseIndicator(data.phase, data.timeRemaining != null ? data.timeRemaining : 0);
+                    if (data.phase === 'day') uiManager.renderVoteBreakdown(gameState.voteBreakdown || []);
                 }
                 // Double-check after update
                 setTimeout(() => {
@@ -993,9 +1020,24 @@ class App {
      * Handle Submit Vote — send current selection (or skip if none) and end vote for this player
      */
     handleSubmitVote() {
-        if (gameState.phase !== 'day' || !gameState.canPerformAction()) return;
-        const targetId = gameState.selectedTarget !== undefined ? gameState.selectedTarget : null;
+        if (gameState.phase !== 'day') return;
+        if (!gameState.canPerformAction()) return;
+        if (!gameState.roomCode) {
+            console.warn('Submit Vote: no room code');
+            return;
+        }
+        const targetId = gameState.selectedTarget !== undefined && gameState.selectedTarget !== null
+            ? gameState.selectedTarget
+            : null;
         uiManager.handleVote(targetId);
+    }
+
+    /**
+     * Finish night early (when all roles have acted)
+     */
+    handleFinishNight() {
+        if (gameState.phase !== 'night' || !gameState.roomCode) return;
+        socketClient.sendFinishNight(gameState.roomCode);
     }
 
     /**

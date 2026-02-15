@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mafia - The Game</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/css/styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
@@ -148,14 +149,17 @@
                         <div id="doctor-targets" class="target-list"></div>
                     </div>
                     <div id="mafia-action" class="action-section hidden">
-                        <p>Choose a player to eliminate:</p>
+                        <p>Choose a player to eliminate. Use Mafia Chat to agree on one target — kill only happens if all mafia vote the same.</p>
+                        <div id="mafia-kill-votes" class="mafia-votes-list hidden"></div>
                         <div id="mafia-targets" class="target-list"></div>
                     </div>
+                    <button id="finish-night-btn" type="button" class="btn btn-primary finish-night-btn hidden">Finish Night</button>
                 </div>
 
                 <div id="day-actions" class="hidden">
                     <h3>Vote to Eliminate</h3>
                     <p style="color: rgba(255,255,255,0.7); font-size: 14px; margin-bottom: 10px;">Choose a player to vote out (or Skip), then click Submit Vote. When everyone has voted, the phase ends.</p>
+                    <div id="vote-breakdown" class="vote-breakdown-list hidden"></div>
                     <div id="vote-targets" class="target-list"></div>
                     <button id="submit-vote-btn" type="button" class="btn btn-primary submit-vote-btn">Submit Vote</button>
                 </div>

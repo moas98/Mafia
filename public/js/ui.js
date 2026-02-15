@@ -150,9 +150,9 @@ class UIManager {
         const isCurrentPlayer = (playerId) => playerId === currentPlayerId;
         
         players.forEach(player => {
-            const showInvBorders = gameState.role === 'detective';
-            const inv = showInvBorders && gameState.investigationResults && gameState.investigationResults[player.id];
-            const invClass = inv === true ? 'investigated-mafia' : (inv === false ? 'investigated-clean' : '');
+            const isOfficer = gameState.role === 'detective';
+            const hasBeenInvestigated = isOfficer && gameState.investigationResults && player.id in gameState.investigationResults;
+            const invClass = !hasBeenInvestigated ? '' : (gameState.investigationResults[player.id] === true ? 'investigated-mafia' : 'investigated-clean');
             const card = document.createElement('div');
             card.className = `player-card ${!player.isAlive ? 'dead' : ''} ${player.disconnected ? 'disconnected' : ''} ${invClass}`.trim();
             card.dataset.playerId = player.id || '';
@@ -168,11 +168,13 @@ class UIManager {
             card.appendChild(name);
             card.appendChild(status);
 
-            // Show vote count during day phase
-            if (player.votes > 0) {
+            // Show vote count during day phase (show number for every player)
+            if (isDay) {
                 const voteCount = document.createElement('div');
                 voteCount.className = 'vote-count';
-                voteCount.textContent = player.votes;
+                const v = player.votes || 0;
+                voteCount.textContent = v;
+                voteCount.title = v === 1 ? '1 vote' : `${v} votes`;
                 card.appendChild(voteCount);
             }
 
@@ -185,8 +187,9 @@ class UIManager {
                 card.appendChild(icon);
             }
 
-            // Add action buttons during night phase
-            if (isNight && canAct && player.isAlive && !isCurrentPlayer(player.id)) {
+            // Add action buttons during night phase (mafia: no Kill button on teammates)
+            const isMafiaTeammate = gameState.role === 'mafia' && gameState.mafiaTeammateIds && gameState.mafiaTeammateIds.includes(player.id);
+            if (isNight && canAct && player.isAlive && !isCurrentPlayer(player.id) && !isMafiaTeammate) {
                 const actionBtn = this.createActionButton(player.id, gameState.role);
                 if (actionBtn) {
                     card.appendChild(actionBtn);
@@ -280,9 +283,10 @@ class UIManager {
         if (!gameState.canPerformAction() || gameState.phase !== 'night') return;
         
         socketClient.sendNightAction(gameState.roomCode, role, targetId);
-        gameState.markActionSubmitted();
+        // Mafia can change their kill decision; others get one action per night
+        if (role !== 'mafia') gameState.markActionSubmitted();
         
-        // Update UI to show action was submitted
+        // Update UI (mafia keeps panel open to change decision)
         this.updateActionPanel();
         this.renderPlayerCards(gameState.players, gameState.playerId);
         
@@ -302,19 +306,21 @@ class UIManager {
      * Handle vote
      */
     handleVote(targetId) {
-        if (!gameState.canPerformAction() || gameState.phase !== 'day') return;
-        
-        socketClient.sendVote(gameState.roomCode, targetId);
+        if (gameState.phase !== 'day') return;
+        if (!gameState.canPerformAction()) return;
+        const id = targetId !== undefined && targetId !== null ? targetId : null;
+        if (!gameState.roomCode) return;
+        socketClient.sendVote(gameState.roomCode, id);
         gameState.markActionSubmitted();
         
         // Update UI
         this.updateActionPanel();
         this.renderPlayerCards(gameState.players, gameState.playerId);
         
-        if (targetId === null) {
+        if (id === null) {
             console.log(`✅ Vote skipped`);
         } else {
-            const targetPlayer = gameState.players.find(p => p.id === targetId);
+            const targetPlayer = gameState.players.find(p => p.id === id);
             if (targetPlayer) {
                 console.log(`✅ Vote submitted for: ${targetPlayer.name}`);
             }
@@ -420,6 +426,7 @@ class UIManager {
                 }
             } else if (gameState.role === 'mafia' && mafiaAction) {
                 mafiaAction.classList.remove('hidden');
+                this.renderMafiaKillVotes(gameState.mafiaKillVotes || []);
                 if (gameState.canPerformAction()) {
                     if (nightActionUsedMsg) nightActionUsedMsg.classList.add('hidden');
                     this.renderTargetList('mafia-targets', gameState.getTargetablePlayers());
@@ -428,8 +435,24 @@ class UIManager {
                     mafiaAction.querySelector('.target-list') && (mafiaAction.querySelector('.target-list').innerHTML = '');
                 }
             }
+            const finishNightBtn = document.getElementById('finish-night-btn');
+            if (finishNightBtn) {
+                if (gameState.nightCanFinish) {
+                    finishNightBtn.classList.remove('hidden');
+                    finishNightBtn.disabled = false;
+                } else {
+                    finishNightBtn.classList.add('hidden');
+                    finishNightBtn.disabled = true;
+                }
+            }
         } else if (gameState.phase === 'day') {
             if (dayActions) dayActions.classList.remove('hidden');
+            const finishNightBtn = document.getElementById('finish-night-btn');
+            if (finishNightBtn) {
+                finishNightBtn.classList.add('hidden');
+                finishNightBtn.disabled = true;
+            }
+            this.renderVoteBreakdown(gameState.voteBreakdown || []);
             this.renderVoteList('vote-targets', gameState.getTargetablePlayers());
             const submitVoteBtn = document.getElementById('submit-vote-btn');
             if (submitVoteBtn) {
@@ -441,7 +464,55 @@ class UIManager {
                     submitVoteBtn.disabled = true;
                 }
             }
+        } else {
+            const finishNightBtn = document.getElementById('finish-night-btn');
+            if (finishNightBtn) {
+                finishNightBtn.classList.add('hidden');
+                finishNightBtn.disabled = true;
+            }
         }
+    }
+
+    /**
+     * Render mafia kill votes (mafia only — who voted to kill whom this night)
+     */
+    renderMafiaKillVotes(votes) {
+        const container = document.getElementById('mafia-kill-votes');
+        if (!container) return;
+        if (!votes || votes.length === 0) {
+            container.classList.add('hidden');
+            container.innerHTML = '';
+            return;
+        }
+        container.classList.remove('hidden');
+        container.innerHTML = '<p class="mafia-votes-title">Kill votes this night:</p>';
+        votes.forEach(v => {
+            const line = document.createElement('div');
+            line.className = 'mafia-vote-line';
+            line.textContent = `${v.voterName} → ${v.targetName}`;
+            container.appendChild(line);
+        });
+    }
+
+    /**
+     * Render day vote breakdown (who voted for whom — visible to all players)
+     */
+    renderVoteBreakdown(breakdown) {
+        const container = document.getElementById('vote-breakdown');
+        if (!container) return;
+        if (!breakdown || breakdown.length === 0) {
+            container.classList.add('hidden');
+            container.innerHTML = '';
+            return;
+        }
+        container.classList.remove('hidden');
+        container.innerHTML = '<p class="vote-breakdown-title">Who voted for whom:</p>';
+        breakdown.forEach(v => {
+            const line = document.createElement('div');
+            line.className = 'vote-breakdown-line';
+            line.textContent = `${v.voterName} → ${v.targetName}`;
+            container.appendChild(line);
+        });
     }
 
     /**

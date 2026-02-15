@@ -75,42 +75,30 @@ class RoleManager {
     const aliveMafia = players.filter(p => p.role === 'mafia' && p.isAlive);
     const mafiaCount = aliveMafia.length;
 
-    // Get Mafia kill target (requires majority vote)
+    // Mafia kill: agree on one → kill that player; disagree → random among targeted players
     const mafiaVotes = {};
+    const targetedByMafia = []; // all targets (one per mafia action)
     if (nightActions.mafia && Array.isArray(nightActions.mafia)) {
       nightActions.mafia.forEach(action => {
         if (action && action.targetId) {
           mafiaVotes[action.targetId] = (mafiaVotes[action.targetId] || 0) + 1;
+          targetedByMafia.push(action.targetId);
         }
       });
     }
 
-    // Find most voted target (must have majority of alive mafia)
+    // Only consider non-mafia targets (mafia cannot kill each other)
+    const mafiaIds = new Set(players.filter(p => p.role === 'mafia' && p.isAlive).map(p => p.id));
+    const voteTargets = Object.keys(mafiaVotes).filter(id => !mafiaIds.has(id));
     let killTarget = null;
-    let maxVotes = 0;
-    const voteTargets = Object.keys(mafiaVotes);
-    
-    // Find the target with most votes
-    voteTargets.forEach(targetId => {
-      const votes = mafiaVotes[targetId];
-      if (votes > maxVotes) {
-        maxVotes = votes;
-        killTarget = targetId;
-      }
-    });
 
-    // Check for ties - if multiple targets have the same max votes, no kill
-    const tiedTargets = voteTargets.filter(targetId => mafiaVotes[targetId] === maxVotes);
-    if (tiedTargets.length > 1) {
-      killTarget = null; // Tie = no kill
-    }
-
-    // Require majority vote (more than half of alive mafia)
-    if (killTarget && mafiaCount > 0) {
-      const majorityRequired = Math.floor(mafiaCount / 2) + 1;
-      if (maxVotes < majorityRequired) {
-        killTarget = null; // No majority = no kill
-      }
+    // Mafia must all agree on one person to kill; if they disagree, no kill
+    if (voteTargets.length === 0) {
+      killTarget = null;
+    } else if (voteTargets.length === 1) {
+      killTarget = voteTargets[0];
+    } else {
+      killTarget = null; // Disagreement = no kill
     }
 
     // Check if Doctor protected the target
