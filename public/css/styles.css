@@ -75,6 +75,7 @@ body {
     display: none;
     min-height: 100vh;
     padding: 20px;
+    opacity: 1; /* GSAP transitions animate opacity */
 }
 
 .screen.active {
@@ -635,7 +636,7 @@ body {
 
 .player-card:hover {
     border-color: var(--color-red);
-    transform: translateY(-4px);
+    transform: translateY(-2px);
     box-shadow: var(--shadow-elevated);
 }
 
@@ -694,13 +695,25 @@ body {
     font-weight: 700;
 }
 
-.player-card .role-icon {
+.player-card .role-icon,
+.player-card .player-card-avatar {
+    display: block;
     width: 60px;
     height: 60px;
     margin: 10px auto;
     border-radius: 4px;
-    object-fit: cover;
     border: 2px solid var(--color-gray-medium);
+}
+
+.player-card .role-icon {
+    object-fit: cover;
+}
+
+.player-card .player-card-avatar svg {
+    width: 60px;
+    height: 60px;
+    display: block;
+    margin: 0 auto;
 }
 
 /* Player Action Buttons */
@@ -1287,7 +1300,9 @@ body {
     .player-card .player-name {
         font-size: 14px;
     }
-    .player-card .role-icon {
+    .player-card .role-icon,
+    .player-card .player-card-avatar,
+    .player-card .player-card-avatar svg {
         width: 40px;
         height: 40px;
     }
@@ -1343,4 +1358,54 @@ body {
 
 .phase-transition {
     animation: phaseTransition 0.5s ease-in-out;
+}
+
+/* Toast notifications */
+.toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: min(400px, calc(100vw - 48px));
+    pointer-events: none;
+}
+
+.toast {
+    pointer-events: auto;
+    padding: 14px 18px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.4;
+    box-shadow: var(--shadow-elevated);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid transparent;
+}
+
+.toast .toast-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.toast.toast-success {
+    background: #1B5E20;
+    color: var(--color-white);
+    border-color: #2E7D32;
+}
+
+.toast.toast-error {
+    background: var(--color-red-dark);
+    color: var(--color-white);
+    border-color: var(--color-red);
+}
+
+.toast.toast-info {
+    background: var(--color-gray-medium);
+    color: var(--color-white);
+    border-color: var(--color-gray-light);
 }

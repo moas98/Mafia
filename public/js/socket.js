@@ -69,14 +69,14 @@ class SocketClient {
                     }, this.reconnectDelay * this.reconnectAttempts);
                 } else {
                     console.error('❌ Max reconnection attempts reached');
-                    alert('Connection lost. Please refresh the page.');
+                    if (typeof showToast === 'function') showToast('Connection lost. Please refresh the page.', 'error');
                 }
             };
 
             return this.ws;
         } catch (error) {
             console.error('❌ Failed to initialize WebSocket:', error);
-            alert('Failed to connect to server. Please check if the server is running.');
+            if (typeof showToast === 'function') showToast('Failed to connect to server. Please check if the server is running.', 'error');
             return null;
         }
     }

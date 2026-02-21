@@ -4,25 +4,31 @@
 class UIManager {
     constructor() {
         this.currentScreen = 'landing';
+        this._playerCardsAnimatedOnce = false; // only animate cards when first showing grid
     }
 
     /**
-     * Show a specific screen
+     * Show a specific screen (with GSAP transition when available)
      */
     showScreen(screenName) {
         console.log('🖥️ Switching to screen:', screenName);
-        document.querySelectorAll('.screen').forEach(screen => {
-            screen.classList.remove('active');
-        });
-        
         const targetScreen = document.getElementById(`${screenName}-screen`);
-        if (targetScreen) {
-            targetScreen.classList.add('active');
-            this.currentScreen = screenName;
-            console.log('✅ Screen switched to:', screenName);
-        } else {
+        if (!targetScreen) {
             console.error('❌ Screen not found:', `${screenName}-screen`);
+            return;
         }
+        if (this.currentScreen === 'game' && screenName !== 'game') {
+            this._playerCardsAnimatedOnce = false;
+        }
+        const outScreen = document.querySelector('.screen.active');
+        if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.screenTransition && outScreen !== targetScreen) {
+            GSAPAnimations.screenTransition(outScreen, `${screenName}-screen`, screenName);
+        } else {
+            document.querySelectorAll('.screen').forEach(screen => screen.classList.remove('active'));
+            targetScreen.classList.add('active');
+        }
+        this.currentScreen = screenName;
+        console.log('✅ Screen switched to:', screenName);
     }
 
     /**
@@ -101,8 +107,16 @@ class UIManager {
                     kickBtn.addEventListener('click', (e) => {
                         e.stopPropagation();
                         const pid = kickBtn.dataset.playerId;
-                        if (pid && confirm(`Kick ${player.name} from the room?`)) {
+                        if (!pid) return;
+                        if (this._kickConfirmId === pid) {
+                            this._kickConfirmId = null;
+                            if (typeof showToast === 'function') showToast(`${player.name} kicked from room`, 'info');
                             socketClient.kickPlayer(gameState.roomCode, pid);
+                        } else {
+                            this._kickConfirmId = pid;
+                            if (typeof showToast === 'function') showToast(`Kick ${player.name}? Click Kick again to confirm`, 'info');
+                            clearTimeout(this._kickConfirmTimeout);
+                            this._kickConfirmTimeout = setTimeout(() => { this._kickConfirmId = null; }, 3000);
                         }
                     });
                     li.appendChild(kickBtn);
@@ -114,15 +128,20 @@ class UIManager {
         if (count) {
             const oldCount = count.textContent;
             count.textContent = players.length;
+            if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.countReactive) {
+                GSAPAnimations.countReactive(count);
+            }
             console.log(`✅ Player count updated: ${oldCount} → ${players.length}`);
-            
-            // Force a re-render check
             if (count.textContent !== String(players.length)) {
                 console.error('❌ Player count element not updating!');
                 count.textContent = players.length;
             }
         } else {
             console.error('❌ Player count element not found!');
+        }
+        if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.animatePlayerListItems) {
+            const items = list.querySelectorAll('.player-list-item');
+            if (items.length) GSAPAnimations.animatePlayerListItems(items);
         }
 
         if (startSection) {
@@ -178,13 +197,19 @@ class UIManager {
                 card.appendChild(voteCount);
             }
 
-            // Show role icon if it's the current player
+            // Avatar: role icon for current player, anonymous SVG for others
             if (player.id === currentPlayerId && gameState.roleImage) {
                 const icon = document.createElement('img');
                 icon.className = 'role-icon';
                 icon.src = gameState.roleImage;
                 icon.alt = gameState.role;
                 card.appendChild(icon);
+            } else {
+                const anonymous = document.createElement('span');
+                anonymous.className = 'player-card-avatar';
+                anonymous.setAttribute('aria-hidden', 'true');
+                anonymous.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 80" width="60" height="60" fill="none"><use href="#anonymous-avatar"/></svg>';
+                card.appendChild(anonymous);
             }
 
             // Add action buttons during night phase (mafia: no Kill button on teammates)
@@ -210,6 +235,12 @@ class UIManager {
 
             grid.appendChild(card);
         });
+        // Only run entrance animation when first showing the grid (not on every phase/vote update)
+        if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.animatePlayerCards && !this._playerCardsAnimatedOnce && players.length > 0) {
+            this._playerCardsAnimatedOnce = true;
+            const cards = grid.querySelectorAll('.player-card');
+            GSAPAnimations.animatePlayerCards(cards);
+        }
     }
 
     /**
@@ -277,27 +308,41 @@ class UIManager {
     }
 
     /**
+     * Check if night action target is already investigated or protected; show toast and return true if should block
+     */
+    checkAlreadyInvestigatedOrProtected(targetId, role) {
+        const targetPlayer = gameState.players.find(p => p.id === targetId);
+        const name = targetPlayer ? targetPlayer.name : 'This player';
+        if (role === 'detective' && gameState.investigationResults && targetId in gameState.investigationResults) {
+            const isMafia = gameState.investigationResults[targetId];
+            const result = isMafia ? 'is Mafia' : 'is not Mafia';
+            if (typeof showToast === 'function') showToast(`Already investigated. ${name} ${result}`, 'info');
+            return true;
+        }
+        if (role === 'doctor' && gameState.doctorProtectedTargetId === targetId) {
+            if (typeof showToast === 'function') showToast(`Already protected. ${name} is protected`, 'info');
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Handle night action
      */
     handleNightAction(targetId, role) {
         if (!gameState.canPerformAction() || gameState.phase !== 'night') return;
-        
+        if (this.checkAlreadyInvestigatedOrProtected(targetId, role)) return;
+
         socketClient.sendNightAction(gameState.roomCode, role, targetId);
-        // Mafia can change their kill decision; others get one action per night
+        if (role === 'doctor') gameState.doctorProtectedTargetId = targetId;
         if (role !== 'mafia') gameState.markActionSubmitted();
-        
-        // Update UI (mafia keeps panel open to change decision)
+
         this.updateActionPanel();
         this.renderPlayerCards(gameState.players, gameState.playerId);
-        
-        // Show confirmation
+
         const targetPlayer = gameState.players.find(p => p.id === targetId);
         if (targetPlayer) {
-            const actionNames = {
-                'mafia': 'eliminate',
-                'doctor': 'protect',
-                'detective': 'investigate'
-            };
+            const actionNames = { 'mafia': 'eliminate', 'doctor': 'protect', 'detective': 'investigate' };
             console.log(`✅ Action submitted: ${actionNames[role]} ${targetPlayer.name}`);
         }
     }
@@ -346,17 +391,27 @@ class UIManager {
 
         if (indicator) {
             indicator.className = `phase-indicator ${phase}`;
+            if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.phasePulse) {
+                GSAPAnimations.phasePulse(indicator, phase);
+            }
         }
 
         if (timer) {
             const minutes = Math.floor(timeRemaining / 60);
             const seconds = timeRemaining % 60;
             timer.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            if (typeof GSAPAnimations !== 'undefined') {
+                if (timeRemaining <= 10 && timeRemaining > 0 && GSAPAnimations.timerUrgency) {
+                    GSAPAnimations.timerUrgency(timeRemaining, timer);
+                } else if (GSAPAnimations.timerUrgencyStop) {
+                    GSAPAnimations.timerUrgencyStop(timer);
+                }
+            }
         }
     }
 
     /**
-     * Show role card modal
+     * Show role card modal (with GSAP animation when available)
      */
     showRoleCard(role, roleImage) {
         const modal = document.getElementById('role-modal');
@@ -369,15 +424,21 @@ class UIManager {
             <h2 class="role-card-title">${role.toUpperCase()}</h2>
         `;
 
-        modal.classList.remove('hidden');
+        if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.showModal) {
+            GSAPAnimations.showModal(modal, modal.querySelector('.modal-content'));
+        } else {
+            modal.classList.remove('hidden');
+        }
     }
 
     /**
-     * Hide role card modal
+     * Hide role card modal (with GSAP animation when available)
      */
     hideRoleCard() {
         const modal = document.getElementById('role-modal');
-        if (modal) {
+        if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.hideModal) {
+            GSAPAnimations.hideModal(modal);
+        } else if (modal) {
             modal.classList.add('hidden');
         }
     }
@@ -513,6 +574,9 @@ class UIManager {
             line.textContent = `${v.voterName} → ${v.targetName}`;
             container.appendChild(line);
         });
+        if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.animateVoteBreakdownLines) {
+            GSAPAnimations.animateVoteBreakdownLines(container);
+        }
     }
 
     /**
@@ -590,7 +654,9 @@ class UIManager {
         // Submit action based on context (night: send immediately; day: use Submit Vote button instead)
         if (gameState.phase === 'night' && gameState.canPerformAction()) {
             const action = gameState.role;
+            if (this.checkAlreadyInvestigatedOrProtected(targetId, action)) return;
             socketClient.sendNightAction(gameState.roomCode, action, targetId);
+            if (action === 'doctor') gameState.doctorProtectedTargetId = targetId;
             gameState.markActionSubmitted();
             this.updateActionPanel();
             this.renderPlayerCards(gameState.players, gameState.playerId);
@@ -621,11 +687,14 @@ class UIManager {
         messageDiv.appendChild(author);
         messageDiv.appendChild(text);
         messagesContainer.appendChild(messageDiv);
+        if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.chatMessageIn) {
+            GSAPAnimations.chatMessageIn(messageDiv);
+        }
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
     /**
-     * Show moderator message
+     * Show moderator message (with GSAP animate in/out when available)
      */
     showModeratorMessage(message) {
         const container = document.getElementById('moderator-messages');
@@ -638,17 +707,18 @@ class UIManager {
         container.innerHTML = '';
         container.appendChild(messageDiv);
 
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-            if (messageDiv.parentNode) {
-                messageDiv.style.opacity = '0';
-                setTimeout(() => {
-                    if (messageDiv.parentNode) {
-                        messageDiv.remove();
-                    }
-                }, 500);
-            }
-        }, 5000);
+        if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.moderatorMessageInOut) {
+            GSAPAnimations.moderatorMessageInOut(messageDiv, 5000);
+        } else {
+            setTimeout(() => {
+                if (messageDiv.parentNode) {
+                    messageDiv.style.opacity = '0';
+                    setTimeout(() => {
+                        if (messageDiv.parentNode) messageDiv.remove();
+                    }, 500);
+                }
+            }, 5000);
+        }
     }
 
     /**
@@ -793,6 +863,10 @@ class UIManager {
             
             listContainer.appendChild(roomItem);
         });
+        if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.animateRoomListItems) {
+            const items = listContainer.querySelectorAll('.room-item');
+            if (items.length) GSAPAnimations.animateRoomListItems(items);
+        }
     }
 
     /**
@@ -880,8 +954,11 @@ class UIManager {
             dayActions.classList.add('hidden');
         }
 
-        // Show modal
-        modal.classList.remove('hidden');
+        if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.showModal) {
+            GSAPAnimations.showModal(modal, modal.querySelector('.modal-content'));
+        } else {
+            modal.classList.remove('hidden');
+        }
     }
 
     /**
@@ -892,7 +969,11 @@ class UIManager {
         const dayActions = document.getElementById('day-actions');
         
         if (modal) {
-            modal.classList.add('hidden');
+            if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.hideModal) {
+                GSAPAnimations.hideModal(modal);
+            } else {
+                modal.classList.add('hidden');
+            }
         }
         
         // Restore day-actions if needed (in case voting continues or UI needs it)
@@ -912,8 +993,8 @@ class UIManager {
         status.classList.add('success');
         status.classList.remove('waiting');
         status.textContent = playersRemaining > 0
-            ? `✓ Vote submitted! Waiting for ${playersRemaining} more player(s)...`
-            : `✓ All players voted! Phase ending...`;
+            ? `✓ Vote submitted! Waiting for ${playersRemaining} more (vote or skip)...`
+            : `✓ All players voted or skipped! Phase ending...`;
     }
 
     /**
@@ -926,7 +1007,7 @@ class UIManager {
         status.classList.remove('hidden');
         status.classList.remove('success');
         status.classList.add('waiting');
-        status.textContent = `⏳ Waiting for ${playersRemaining} more player(s) to vote...`;
+        status.textContent = `⏳ Waiting for ${playersRemaining} more player(s) to vote or skip...`;
     }
 }
 

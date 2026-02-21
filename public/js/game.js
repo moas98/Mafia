@@ -23,6 +23,8 @@ class GameState {
         this.mafiaKillVotes = []; // [{ voterName, targetName }] — visible to mafia during night
         this.voteBreakdown = []; // [{ voterName, targetName }] — who voted for whom during day
         this.nightCanFinish = false; // true when all roles have acted — show Finish Night button
+        this.doctorProtectedTargetId = null; // who the doctor protected this night (for "already protected" toast)
+        this.playersVoted = 0; // count from server (vote or skip both count)
     }
 
     /**
@@ -60,11 +62,14 @@ class GameState {
         if (phase === 'night') {
             this.nightActionSubmitted = false;
             this.nightCanFinish = false;
+            this.doctorProtectedTargetId = null;
         } else if (phase === 'day') {
             this.voteSubmitted = false;
             this.nightCanFinish = false;
+            this.doctorProtectedTargetId = null;
         } else {
             this.nightCanFinish = false;
+            this.doctorProtectedTargetId = null;
         }
     }
 

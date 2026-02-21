@@ -192,6 +192,9 @@ class App {
                 const onlineCountEl = document.getElementById('online-count');
                 if (onlineCountEl) {
                     onlineCountEl.textContent = data.onlineCount;
+                    if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.countReactive) {
+                        GSAPAnimations.countReactive(onlineCountEl);
+                    }
                 }
             }
         });
@@ -407,10 +410,10 @@ class App {
                 uiManager.renderPlayerCards(gameState.players, gameState.playerId);
             }
             const result = data.isMafia ? 'is Mafia' : 'is not Mafia';
-            alert(`Investigation Result: ${data.targetName} ${result}`);
+            if (typeof showToast === 'function') showToast(`Investigation Result: ${data.targetName} ${result}`, 'info');
         });
 
-        // Vote cast (all players see who voted for whom)
+        // Vote cast (all players see who voted for whom; skip counts as a vote)
         socketClient.on('vote-cast', (data) => {
             if (typeof uiManager === 'undefined') return;
             uiManager.updateVotes(data.votes);
@@ -418,20 +421,20 @@ class App {
                 gameState.voteBreakdown = data.voteBreakdown;
                 uiManager.renderVoteBreakdown(data.voteBreakdown);
             }
-            
-            // Track voting progress
-            if (data.playersVoted !== undefined) {
-                const alivePlayers = gameState.players.filter(p => p.isAlive).length;
-                const remaining = alivePlayers - data.playersVoted;
-                if (remaining > 0 && gameState.phase === 'day') {
-                    console.log(`📊 Voting progress: ${data.playersVoted}/${alivePlayers} players voted`);
-                    uiManager.showVotingWaitingStatus(remaining);
-                } else if (remaining <= 0) {
-                    console.log('✅ All players have voted!');
-                    uiManager.hideVotingDialog();
-                }
+            if (data.playersVoted !== undefined) gameState.playersVoted = data.playersVoted;
+            if (data.alivePlayers !== undefined) gameState.alivePlayersCount = data.alivePlayers;
+
+            const alivePlayers = gameState.players.filter(p => p.isAlive).length;
+            const playersVoted = data.playersVoted !== undefined ? data.playersVoted : (gameState.playersVoted || 0);
+            const remaining = alivePlayers - playersVoted;
+            if (remaining > 0 && gameState.phase === 'day') {
+                console.log(`📊 Voting progress: ${playersVoted}/${alivePlayers} (skip counts as a vote)`);
+                uiManager.showVotingWaitingStatus(remaining);
+            } else if (remaining <= 0) {
+                console.log('✅ All players have voted (or skipped)!');
+                uiManager.hideVotingDialog();
             }
-            
+
             uiManager.updateActionPanel();
             uiManager.renderPlayerCards(gameState.players, gameState.playerId);
         });
@@ -486,7 +489,7 @@ class App {
                 uiManager.showScreen('landing');
             } else {
                 // Otherwise show alert for other errors
-                alert(errorMessage);
+                if (typeof showToast === 'function') showToast(errorMessage, 'error');
             }
         });
 
@@ -523,6 +526,9 @@ class App {
             const onlineCountEl = document.getElementById('online-count');
             if (onlineCountEl) {
                 onlineCountEl.textContent = data.onlineCount || 0;
+                if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.countReactive) {
+                    GSAPAnimations.countReactive(onlineCountEl);
+                }
             }
         });
 
@@ -532,6 +538,9 @@ class App {
             const roomOnlineCountEl = document.getElementById('room-online-count');
             if (roomOnlineCountEl && data.roomCode === gameState.roomCode) {
                 roomOnlineCountEl.textContent = data.playerCount || 0;
+                if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.countReactive) {
+                    GSAPAnimations.countReactive(roomOnlineCountEl);
+                }
             }
         });
 
@@ -575,7 +584,7 @@ class App {
                 if (data.error === 'Room not found' || (data.error && data.error.toLowerCase().includes('room not found'))) {
                     this.handleRoomDeleted({ message: data.error, roomCode: data.roomCode });
                 } else {
-                    alert('Error getting room state: ' + data.error);
+                    if (typeof showToast === 'function') showToast('Error getting room state: ' + data.error, 'error');
                 }
                 return;
             }
@@ -638,7 +647,7 @@ class App {
                 statusEl.textContent = 'Please enter a valid 6-character room code';
                 statusEl.className = 'room-status error';
             } else {
-                alert('Please enter a valid 6-character room code');
+                if (typeof showToast === 'function') showToast('Please enter a valid 6-character room code', 'info');
             }
             return;
         }
@@ -648,7 +657,7 @@ class App {
                 statusEl.textContent = 'Please enter your name (at least 2 characters)';
                 statusEl.className = 'room-status error';
             } else {
-                alert('Please enter your name (at least 2 characters)');
+                if (typeof showToast === 'function') showToast('Please enter your name (at least 2 characters)', 'info');
             }
             return;
         }
@@ -803,7 +812,7 @@ class App {
                 statusEl.textContent = 'Please enter your name (at least 2 characters)';
                 statusEl.className = 'room-status error';
             } else {
-                alert('Please enter your name (at least 2 characters)');
+                if (typeof showToast === 'function') showToast('Please enter your name (at least 2 characters)', 'info');
             }
             return;
         }
@@ -1034,17 +1043,16 @@ class App {
         const roomCode = gameState.roomCode;
         if (navigator.clipboard) {
             navigator.clipboard.writeText(roomCode).then(() => {
-                alert('Room code copied to clipboard!');
+                if (typeof showToast === 'function') showToast('Room code copied to clipboard!', 'success');
             });
         } else {
-            // Fallback for older browsers
             const input = document.createElement('input');
             input.value = roomCode;
             document.body.appendChild(input);
             input.select();
             document.execCommand('copy');
             document.body.removeChild(input);
-            alert('Room code copied to clipboard!');
+            if (typeof showToast === 'function') showToast('Room code copied to clipboard!', 'success');
         }
     }
 
@@ -1196,7 +1204,7 @@ class App {
             : null;
 
         if (!targetId) {
-            alert('Please select a player to vote for');
+            if (typeof showToast === 'function') showToast('Please select a player to vote for', 'info');
             return;
         }
 
@@ -1316,6 +1324,13 @@ window.addEventListener('unhandledrejection', (event) => {
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     const app = new App();
+
+    // Landing title reveal (GSAP) when landing screen is first shown
+    setTimeout(() => {
+        if (typeof GSAPAnimations !== 'undefined' && GSAPAnimations.landingTitleReveal) {
+            GSAPAnimations.landingTitleReveal();
+        }
+    }, 120);
 
     // Pre-fill room code and player name from last session (localStorage) so user doesn't have to re-type
     try {
